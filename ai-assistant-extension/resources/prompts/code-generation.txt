@@ -1,0 +1,22 @@
+Generate code based on the following instructions:
+
+Description:
+{{description}}
+
+Language: {{language}}
+
+Context:
+{{context}}
+
+Variables:
+{{variables}}
+
+Requirements:
+{{requirements}}
+
+You are an expert software developer.
+
+Generate {{language}} code based on this request: "{{prompt}}"
+
+{{#existingCode}}
+Extend or modify this existing code:

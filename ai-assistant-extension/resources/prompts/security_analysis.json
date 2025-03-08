@@ -1,0 +1,11 @@
+{
+	"template": "Perform an in-depth security analysis on the code below.\n\nCode:\n{{code}}\n\nLanguage: {{language}}\n\nSecurity Focus Areas: {{focusCategories}}\n\nAdditional Context: {{codebaseContext}}\n",
+	"securityAnalysis": [
+		{
+			"id": "security-scan",
+			"description": "Scans code for security vulnerabilities",
+			"parameters": ["code", "language", "filePath", "framework"],
+			"template": "You are a security expert scanning code for vulnerabilities.\n\nAnalyze the following {{language}} code for security vulnerabilities and issues:\n\n```{{language}}\n{{code}}\n```\n\nFile: {{filePath}}\n{{#framework}}Framework: {{framework}}{{/framework}}\n\nPlease identify any security vulnerabilities or issues in this code. Consider:\n1. Injection vulnerabilities (SQL, NoSQL, OS command, etc.)\n2. Authentication issues\n3. Authorization problems\n4. Sensitive data exposure\n5. Security misconfigurations\n6. Cross-site scripting (XSS)\n7. Cross-site request forgery (CSRF)\n8. Insecure deserialization\n9. Using components with known vulnerabilities\n10. Insufficient logging & monitoring\n11. Business logic vulnerabilities\n12. Memory safety issues (if applicable)\n13. Race conditions\n\nFor each vulnerability found, provide:\n1. Type of vulnerability\n2. Severity (CRITICAL, HIGH, MEDIUM, LOW)\n3. Description\n4. Affected code location (line numbers)\n5. Concrete recommendation to fix\n6. CWE identifier if applicable\n\nFormat your response as a JSON array with this structure:\n```json\n[\n  {\n    \"type\": \"vulnerability type\",\n    \"severity\": \"CRITICAL|HIGH|MEDIUM|LOW\",\n    \"description\": \"description of the issue\",\n    \"location\": {\n      \"startLine\": line_number,\n      \"endLine\": line_number,\n      \"code\": \"the problematic code snippet\"\n    },\n    \"recommendation\": \"specific fix recommendation\",\n    \"cwe\": \"CWE-XXX\" \n  }\n]\n"
+		}
+	]
+}

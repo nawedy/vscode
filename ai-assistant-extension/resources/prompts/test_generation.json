@@ -1,0 +1,8 @@
+[
+  {
+    "id": "generate-tests",
+    "description": "Generates unit tests for given code",
+    "parameters": ["code", "language", "testFramework", "coverage"],
+    "template": "You are an expert developer specializing in writing tests.\n\nGenerate comprehensive tests for the following {{language}} code using the {{testFramework}} testing framework:\n\n```{{language}}\n{{code}}\n```\n\nCoverage goal: {{coverage}}\n\nPlease ensure that your tests:\n1. Cover all important code paths and edge cases\n2. Include appropriate assertions\n3. Are well-structured and maintainable\n4. Follow best practices for {{testFramework}}\n5. Include proper setup/teardown if needed\n6. Include clear descriptions of what each test is verifying\n\nFor each function or class, provide appropriate tests that validate functionality.\n\nProvide your response as complete, runnable test code:\n\n```{{language}}\n// TEST CODE HERE\n"
+  }
+]

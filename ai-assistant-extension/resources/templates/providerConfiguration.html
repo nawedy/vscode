@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>AI Provider Configuration</title>
+	<style>
+		:root {
+			--container-padding: 20px;
+			--border-radius: 4px;
+		}
+
+		body {
+			padding: 0;
+			margin: 0;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			color: var(--vscode-editor-foreground);
+			background-color: var(--vscode-editor-background);
+		}
+
+		.container {
+			padding: var(--container-padding);
+			max-width: 1000px;
+			margin: 0 auto;
+		}
+
+		header {
+			margin-bottom: 20px;
+		}
+
+		h1 {
+			font-size: 1.8em;
+			margin-bottom: 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		h2 {
+			font-size: 1.5em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		h3 {
+			font-size: 1.2em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		.provider-card {
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			border-radius: var(--border-radius);
+			margin-bottom: 16px;
+			overflow: hidden;
+		}
+
+		.provider-header {
+			padding: 12px 16px;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			background-color: var(--vscode-panel-background);
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.provider-name {
+			font-weight: bold;
+			font-size: 1.1em;
+		}
+
+		.provider-status {
+			font-size: 0.9em;
+		}
+
+		.status-badge {
+			display: inline-block;
+			padding: 2px 8px;
+			border-radius: 10px;
+			font-size: 0.8em;
+		}
+
+		.status-ready {
+			background-color: var(--vscode-testing-iconPassed);
+			color: var(--vscode-editor-background);
+		}
+
+		.status-not-ready {
+			background-color: var(--vscode-testing-iconFailed);
+			color: var(--vscode-editor-background);
+		}
+
+		.status-authenticated {
+			background-color: var(--vscode-charts-green);
+			color: var(--vscode-editor-background);
+		}
+
+		.status-not-authenticated {
+			background-color: var(--vscode-charts-yellow);
+			color: var(--vscode-editor-background);
+		}
+
+		.provider-body {
+			padding: 16px;
+		}
+
+		.model-list {
+			margin-top: 12px;
+		}
+
+		.model-item {
+			background-color: var(--vscode-dropdown-background);
+			padding: 10px;
+			margin-bottom: 8px;
+			border-radius: var(--border-radius);
+		}
+
+		.model-name {
+			font-weight: bold;
+		}
+
+		.model-capabilities {
+			margin-top: 4px;
+			font-size: 0.9em;
+		}
+
+		.capability-badge {
+			display: inline-block;
+			background-color: var(--vscode-badge-background);
+			color: var(--vscode-badge-foreground);
+			padding: 2px 6px;
+			border-radius: 10px;
+			font-size: 0.8em;
+			margin-right: 4px;
+			margin-bottom: 4px;
+		}
+
+		.button {
+			background-color: var(--vscode-button-background);
+			color: var(--vscode-button-foreground);
+			border: none;
+			padding: 6px 12px;
+			cursor: pointer;
+			border-radius: var(--border-radius);
+		}
+
+		.button:hover {
+			background-color: var(--vscode-button-hoverBackground);
+		}
+
+		.button-danger {
+			background-color: var(--vscode-errorForeground);
+		}
+
+		.button-danger:hover {
+			opacity: 0.9;
+		}
+
+		.button-container {
+			margin-top: 12px;
+			display: flex;
+			gap: 8px;
+		}
+
+		.capability-settings {
+			margin-top: 20px;
+			padding: 16px;
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			border-radius: var(--border-radius);
+		}
+
+		.capability-item {
+			margin-bottom: 12px;
+			padding-bottom: 12px;
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.capability-name {
+			font-weight: bold;
+			margin-bottom: 6px;
+		}
+
+		.model-dropdown {
+			width: 100%;
+			padding: 6px;
+			background-color: var(--vscode-input-background);
+			color: var(--vscode-input-foreground);
+			border: 1px solid var(--vscode-input-border);
+			border-radius: var(--border-radius);
+		}
+
+		.provider-collapsed .model-list {
+			display: none;
+		}
+
+		.toggle-models {
+			background: none;
+			border: none;
+			color: var(--vscode-textLink-foreground);
+			cursor: pointer;
+			padding: 0;
+			font-size: 0.9em;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<header>
+			<h1>AI Provider Configuration</h1>
+			<p>Configure AI providers and manage API keys for the AI Assistant extension.</p>
+		</header>
+
+		<h2>Providers</h2>
+		<div id="providers-container">
+			<!-- Providers will be added here dynamically -->
+		</div>
+
+		<h2>Default Models</h2>
+		<div class="capability-settings">
+			<div id="capabilities-container">
+				<!-- Capabilities will be added here dynamically -->
+			</div>
+		</div>
+	</div>
+
+	<script>
+		(function() {
+			// Get vscode API
+			const vscode = acquireVsCodeApi();
+
+			// Get providers data
+			const providersData = JSON.parse('{{providers}}');
+			const defaultModelsData = JSON.parse('{{defaultModels}}');
+
+			// Render providers
+			renderProviders(providersData);
+
+			// Render capability settings
+			renderCapabilitySettings(providersData, defaultModelsData);
+
+			/**
+			 * Format capability name for display
+			 * @param {string} capability Capability name
+			 */
+			function formatCapabilityName(capability) {
+				return capability
+					.replace(/([A-Z])/g, ' $1')
+					.replace(/^./, str => str.toUpperCase());
+			}
+
+			/**
+			 * Render providers data
+			 * @param {Array} providers Array of provider data
+			 */
+			function renderProviders(providers) {
+				const container = document.getElementById('providers-container');
+				container.innerHTML = '';
+
+				for (const provider of providers) {
+					const providerCard = document.createElement('div');
+					providerCard.className = 'provider-card provider-collapsed';
+					providerCard.dataset.providerId = provider.id;
+
+					// Provider header
+					const providerHeader = document.createElement('div');
+					providerHeader.className = 'provider-header';
+
+					const providerName = document.createElement('div');
+					providerName.className = 'provider-name';
+					providerName.textContent = provider.name;
+
+					const providerStatus = document.createElement('div');
+					providerStatus.className = 'provider-status';
+
+					// Ready status
+					const readyStatus = document.createElement('span');
+					readyStatus.className = `status-badge ${provider.isReady ? 'status-ready' : 'status-not-ready'}`;
+					readyStatus.textContent = provider.isReady ? 'Ready' : 'Not Ready';
+
+					// Auth status
+					const authStatus = document.createElement('span');
+					authStatus.className = `status-badge ${provider.isAuthenticated ? 'status-authenticated' : 'status-not-authenticated'}`;
+					authStatus.textContent = provider.isAuthenticated ? 'Authenticated' : 'Not Authenticated';
+					authStatus.style.marginLeft = '4px';
+
+					providerStatus.appendChild(readyStatus);
+					providerStatus.appendChild(authStatus);
+
+					providerHeader.appendChild(providerName);
+					providerHeader.appendChild(providerStatus);
+
+					// Toggle models button
+					const toggleButton = document.createElement('button');
+					toggleButton.className = 'toggle-models';
+					toggleButton.textContent = 'Show Models';
+					toggleButton.addEventListener('click', function() {
+						const card = this.closest('.provider-card');
+						card.classList.toggle('provider-collapsed');
+						this.textContent = card.classList.contains('provider-collapsed') ? 'Show Models' : 'Hide Models';
+					});
+
+					// Provider body
+					const providerBody = document.createElement('div');
+					providerBody.className = 'provider-body';
+
+					// Authentication buttons
+					const buttonContainer = document.createElement('div');
+					buttonContainer.className = 'button-container';
+
+					const configButton = document.createElement('button');
+					configButton.className = 'button';
+					configButton.textContent = provider.isAuthenticated ? 'Update API Key' : 'Set API Key';
+					configButton.addEventListener('click', () => {
+						vscode.postMessage({
+							command: 'setApiKey',
+							providerId: provider.id
+						});
+					});
+					buttonContainer.appendChild(configButton);
+
+					if (provider.isAuthenticated) {
+						const removeApiKeyButton = document.createElement('button');
+						removeApiKeyButton.className = 'button button-danger';
+						removeApiKeyButton.textContent = 'Remove API Key';
+						removeApiKeyButton.addEventListener('click', () => {
+							vscode.postMessage({
+								command: 'removeApiKey',
+								providerId: provider.id
+							});
+						});
+						buttonContainer.appendChild(removeApiKeyButton);
+					}
+
+					const testButton = document.createElement('button');
+					testButton.className = 'button';
+					testButton.textContent = 'Test Connection';
+					testButton.addEventListener('click', () => {
+						vscode.postMessage({
+							command: 'testProvider',
+							providerId: provider.id
+						});
+					});
+					buttonContainer.appendChild(testButton);
+
+					providerBody.appendChild(buttonContainer);
+
+					// Add toggle button
+					providerBody.appendChild(toggleButton);
+
+					// Models list
+					const modelList = document.createElement('div');
+					modelList.className = 'model-list';
+
+					// Add models
+					if (provider.models && provider.models.length > 0) {
+						for (const model of provider.models) {
+							const modelItem = document.createElement('div');
+							modelItem.className = 'model-item';
+
+							const modelName = document.createElement('div');
+							modelName.className = 'model-name';
+							modelName.textContent = model.name;
+
+							const modelCapabilities = document.createElement('div');
+							modelCapabilities.className = 'model-capabilities';
+
+							if (model.capabilities && model.capabilities.length > 0) {
+								for (const capability of model.capabilities) {
+									const capabilityBadge = document.createElement('span');
+									capabilityBadge.className = 'capability-badge';
+									capabilityBadge.textContent = formatCapabilityName(capability);
+									modelCapabilities.appendChild(capabilityBadge);
+								}
+							}
+
+							modelItem.appendChild(modelName);
+							modelItem.appendChild(modelCapabilities);
+							modelList.appendChild(modelItem);
+						}
+					} else {
+						const noModels = document.createElement('div');
+						noModels.textContent = 'No models available for this provider.';
+						modelList.appendChild(noModels);
+					}
+
+					providerBody.appendChild(modelList);
+
+					// Combine all elements
+					providerCard.appendChild(providerHeader);
+					providerCard.appendChild(providerBody);
+					container.appendChild(providerCard);
+				}
+			}
+
+			/**
+			 * Render capability settings
+			 * @param {Array} providers Array of provider data
+			 * @param {Object} defaultModels Default model settings
+			 */
+			function renderCapabilitySettings(providers, defaultModels) {
+				const container = document.getElementById('capabilities-container');
+				container.innerHTML = '';
+
+				// Get unique capabilities from all models
+				const allCapabilities = new Set();
+				for (const provider of providers) {
+					for (const model of provider.models || []) {
+						for (const capability of model.capabilities || []) {
+							allCapabilities.add(capability);
+						}
+					}
+				}
+
+				// Sort capabilities alphabetically
+				const sortedCapabilities = Array.from(allCapabilities).sort();
+
+				// Create settings for each capability
+				for (const capability of sortedCapabilities) {
+					const capabilityItem = document.createElement('div');
+					capabilityItem.className = 'capability-item';
+
+					const capabilityName = document.createElement('div');
+					capabilityName.className = 'capability-name';
+					capabilityName.textContent = formatCapabilityName(capability);
+					capabilityItem.appendChild(capabilityName);
+
+					// Create model dropdown
+					const modelDropdown = document.createElement('select');
+					modelDropdown.className = 'model-dropdown';
+					modelDropdown.dataset.capability = capability;
+
+					// Get models with this capability
+					const modelsWithCapability = [];
+					for (const provider of providers) {
+						for (const model of provider.models || []) {
+							if (model.capabilities && model.capabilities.includes(capability)) {
+								modelsWithCapability.push({
+									id: model.id,
+									name: model.name,
+									provider: provider.id
+								});
+							}
+						}
+					}
+
+					// Add models to dropdown
+					for (const model of modelsWithCapability) {
+						const option = document.createElement('option');
+						option.value = JSON.stringify({ modelId: model.id, providerId: model.provider });
+						option.textContent = `${model.name} (${model.provider})`;
+
+						// Check if this is the default model for this capability
+						if (
+							defaultModels[capability] &&
+							defaultModels[capability].modelId === model.id &&
+							defaultModels[capability].providerId === model.provider
+						) {
+							option.selected = true;
+						}
+
+						modelDropdown.appendChild(option);
+					}
+
+					// Handle dropdown changes
+					modelDropdown.addEventListener('change', function() {
+						const selectedValue = JSON.parse(this.value);
+						vscode.postMessage({
+							command: 'setDefaultModel',
+							capability: this.dataset.capability,
+							modelId: selectedValue.modelId,
+							providerId: selectedValue.providerId
+						});
+					});
+
+					capabilityItem.appendChild(modelDropdown);
+					container.appendChild(capabilityItem);
+				}
+			}
+
+			// Handle messages from extension
+			window.addEventListener('message', event => {
+				const message = event.data;
+				if (message.command === 'updateProviders') {
+					renderProviders(message.providers);
+					renderCapabilitySettings(message.providers, message.defaultModels);
+				}
+			});
+		})();
+	</script>
+</body>
+</html>

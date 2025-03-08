@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Security Report</title>
+	<style>
+		:root {
+			--container-padding: 20px;
+			--border-radius: 4px;
+		}
+
+		body {
+			padding: 0;
+			margin: 0;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			color: var(--vscode-editor-foreground);
+			background-color: var(--vscode-editor-background);
+		}
+
+		.container {
+			padding: var(--container-padding);
+			max-width: 1200px;
+			margin: 0 auto;
+		}
+
+		header {
+			margin-bottom: 20px;
+		}
+
+		h1 {
+			font-size: 1.8em;
+			margin-bottom: 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		h2 {
+			font-size: 1.5em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+			padding-bottom: 0.3em;
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		h3 {
+			font-size: 1.2em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		pre {
+			background-color: var(--vscode-textCodeBlock-background);
+			color: var(--vscode-textCodeBlock-foreground);
+			padding: 16px;
+			border-radius: var(--border-radius);
+			overflow: auto;
+			font-family: var(--vscode-editor-font-family);
+			font-size: var(--vscode-editor-font-size);
+			margin: 1em 0;
+		}
+
+		code {
+			font-family: var(--vscode-editor-font-family);
+			font-size: var(--vscode-editor-font-size);
+			background-color: var(--vscode-textCodeBlock-background);
+			padding: 0.2em 0.4em;
+			border-radius: 3px;
+		}
+
+		.summary-box {
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			padding: 16px;
+			border-radius: var(--border-radius);
+			margin-bottom: 20px;
+		}
+
+		.summary-title {
+			font-size: 1.2em;
+			font-weight: bold;
+			margin-bottom: 10px;
+		}
+
+		.summary-item {
+			margin-bottom: 8px;
+		}
+
+		.risk-level {
+			display: inline-block;
+			padding: 4px 8px;
+			border-radius: 3px;
+			color: white;
+			font-weight: bold;
+		}
+
+		.risk-critical {
+			background-color: #e51400;
+		}
+
+		.risk-high {
+			background-color: #ff8c00;
+		}
+
+		.risk-medium {
+			background-color: #ffcc00;
+			color: black;
+		}
+
+		.risk-low {
+			background-color: #3794ff;
+		}
+
+		.risk-secure {
+			background-color: #4caf50;
+		}
+
+		.file-item {
+			margin-bottom: 30px;
+			padding: 16px;
+			border: 1px solid var(--vscode-panel-border);
+			border-radius: var(--border-radius);
+		}
+
+		.file-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 10px;
+		}
+
+		.file-title {
+			font-size: 1.1em;
+			font-weight: bold;
+		}
+
+		.file-path {
+			font-size: 0.9em;
+			color: var(--vscode-descriptionForeground);
+			margin-bottom: 8px;
+			font-family: var(--vscode-editor-font-family);
+		}
+
+		.issue-item {
+			margin-bottom: 20px;
+			padding: 12px;
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			border-left: 4px solid var(--vscode-panel-border);
+			border-radius: var(--border-radius);
+		}
+
+		.issue-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 8px;
+		}
+
+		.issue-title {
+			font-weight: bold;
+		}
+
+		.issue-severity {
+			font-weight: bold;
+			padding: 2px 6px;
+			border-radius: 3px;
+		}
+
+		.severity-critical {
+			background-color: #e51400;
+			color: white;
+		}
+
+		.severity-high {
+			background-color: #ff8c00;
+			color: white;
+		}
+
+		.severity-medium {
+			background-color: #ffcc00;
+			color: black;
+		}
+
+		.severity-low {
+			background-color: #3794ff;
+			color: white;
+		}
+
+		.issue-description {
+			margin-bottom: 8px;
+		}
+
+		.issue-location {
+			font-size: 0.9em;
+			color: var(--vscode-descriptionForeground);
+			margin-bottom: 8px;
+		}
+
+		.issue-code {
+			margin-bottom: 8px;
+		}
+
+		.issue-recommendation {
+			margin-top: 8px;
+		}
+
+		.issue-cwe {
+			font-size: 0.9em;
+			color: var(--vscode-descriptionForeground);
+		}
+
+		.button {
+			background-color: var(--vscode-button-background);
+			color: var(--vscode-button-foreground);
+			border: none;
+			padding: 6px 12px;
+			border-radius: var(--border-radius);
+			cursor: pointer;
+			margin-right: 8px;
+			font-size: var(--vscode-font-size);
+		}
+
+		.button:hover {
+			background-color: var(--vscode-button-hoverBackground);
+		}
+
+		.action-bar {
+			margin: 20px 0;
+			padding: 12px 0;
+			border-top: 1px solid var(--vscode-panel-border);
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.tab-container {
+			margin-bottom: 20px;
+		}
+
+		.tabs {
+			display: flex;
+			border-bottom: 1px solid var(--vscode-panel-border);
+			margin-bottom: 20px;
+		}
+
+		.tab {
+			padding: 8px 16px;
+			cursor: pointer;
+		}
+
+		.tab.active {
+			border-bottom: 2px solid var(--vscode-button-background);
+			font-weight: bold;
+		}
+
+		.tab-content {
+			display: none;
+		}
+
+		.tab-content.active {
+			display: block;
+		}
+
+		.export-options {
+			margin-top: 20px;
+		}
+
+		.no-issues {
+			padding: 12px;
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			border-radius: var(--border-radius);
+		}
+
+		.dropdown {
+			background-color: var(--vscode-dropdown-background);
+			color: var(--vscode-dropdown-foreground);
+			border: 1px solid var(--vscode-dropdown-border);
+			padding: 4px 8px;
+			border-radius: var(--border-radius);
+			margin-right: 8px;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<header>
+			<h1>Security Scan Report</h1>
+			<div>
+				<div><strong>Workspace:</strong> {{workspaceName}}</div>
+				<div><strong>Timestamp:</strong> {{timestamp}}</div>
+			</div>
+		</header>
+
+		<div class="summary-box">
+			<div class="summary-title">Summary</div>
+			<div class="summary-item"><strong>Files Scanned:</strong> {{totalFiles}}</div>
+			<div class="summary-item"><strong>Issues Found:</strong> {{totalIssues}}</div>
+			<div class="summary-item">
+				<strong>Highest Risk Level:</strong>
+				<span class="risk-level risk-{{highestRiskLevel | lowercase}}">{{highestRiskLevel}}</span>
+			</div>
+		</div>
+
+		<div class="action-bar">
+			<button id="fix-all-issues" class="button">Fix All Issues</button>
+			<button id="export-report" class="button">Export Report</button>
+			<div class="export-options" style="display: none;">
+				<select id="export-format" class="dropdown">
+					<option value="markdown">Markdown</option>
+					<option value="html">HTML</option>
+					<option value="json">JSON</option>
+				</select>
+				<button id="do-export" class="button">Export</button>
+			</div>
+		</div>
+
+		<div class="tab-container">
+			<div class="tabs">
+				<div class="tab active" data-tab="issues-tab">Security Issues</div>
+				<div class="tab" data-tab="recommendations-tab">Recommendations</div>
+			</div>
+
+			<div id="issues-tab" class="tab-content active">
+				<div id="issues-container">
+					<!-- Issues will be populated here -->
+				</div>
+			</div>
+
+			<div id="recommendations-tab" class="tab-content">
+				<div id="recommendations-container">
+					<!-- Recommendations will be populated here -->
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		(function() {
+			// Get vscode API
+			const vscode = acquireVsCodeApi();
+
+			// Get scan results from the server
+			const scanResults = JSON.parse('{{scanResultsJSON}}');
+
+			// Initialize tabs
+			initTabs();
+
+			// Display issues
+			displayIssues(scanResults);
+
+			// Display recommendations
+			displayRecommendations(scanResults);
+
+			// Set up button handlers
+			document.getElementById('fix-all-issues').addEventListener('click', fixAllIssues);
+			document.getElementById('export-report').addEventListener('click', toggleExportOptions);
+			document.getElementById('do-export').addEventListener('click', exportReport);
+
+			/**
+			 * Initialize tabs functionality
+			 */
+			function initTabs() {
+				const tabs = document.querySelectorAll('.tab');
+				tabs.forEach(tab => {
+					tab.addEventListener('click', () => {
+						// Remove active class from all tabs
+						tabs.forEach(t => t.classList.remove('active'));
+						// Add active class to clicked tab
+						tab.classList.add('active');
+
+						// Hide all tab contents
+						document.querySelectorAll('.tab-content').forEach(content => {
+							content.classList.remove('active');
+						});
+
+						// Show the selected tab content
+						const tabId = tab.getAttribute('data-tab');
+						document.getElementById(tabId).classList.add('active');
+					});
+				});
+			}
+
+			/**
+			 * Display security issues
+			 * @param {Array} scanResults Array of scan results
+			 */
+			function displayIssues(scanResults) {
+				const container = document.getElementById('issues-container');
+				container.innerHTML = '';
+
+				let totalIssues = 0;
+
+				for (const result of scanResults) {
+					const fileItem = document.createElement('div');
+					fileItem.className = 'file-item';
+
+					const fileName = result.filePath.split('/').pop();
+
+					// File header
+					const fileHeader = document.createElement('div');
+					fileHeader.className = 'file-header';
+
+					const fileTitle = document.createElement('div');
+					fileTitle.className = 'file-title';
+					fileTitle.textContent = fileName;
+
+					const riskLevel = document.createElement('span');
+					riskLevel.className = `risk-level risk-${result.riskLevel.toLowerCase()}`;
+					riskLevel.textContent = result.riskLevel;
+
+					fileHeader.appendChild(fileTitle);
+					fileHeader.appendChild(riskLevel);
+					fileItem.appendChild(fileHeader);
+
+					// File path
+					const filePath = document.createElement('div');
+					filePath.className = 'file-path';
+					filePath.textContent = result.filePath;
+					fileItem.appendChild(filePath);
+
+					// Open file button
+					const openFileButton = document.createElement('button');
+					openFileButton.className = 'button';
+					openFileButton.textContent = 'Open File';
+					openFileButton.addEventListener('click', () => {
+						vscode.postMessage({
+							command: 'openFile',
+							data: { filePath: result.filePath }
+						});
+					});
+					fileItem.appendChild(openFileButton);
+
+					// Fix issues button
+					const fixIssuesButton = document.createElement('button');
+					fixIssuesButton.className = 'button';
+					fixIssuesButton.textContent = 'Fix Issues in File';
+					fixIssuesButton.addEventListener('click', () => {
+						vscode.postMessage({
+							command: 'fixIssuesInFile',
+							data: {
+								filePath: result.filePath,
+								issues: result.issues
+							}
+						});
+					});
+					fileItem.appendChild(fixIssuesButton);
+
+					// Issues list
+					const issues = result.issues || [];
+					totalIssues += issues.length;
+
+					if (issues.length === 0) {
+						const noIssues = document.createElement('div');
+						noIssues.className = 'no-issues';
+						noIssues.textContent = 'No security issues found in this file.';
+						fileItem.appendChild(noIssues);
+					} else {
+						for (const issue of issues) {
+							const issueItem = document.createElement('div');
+							issueItem.className = 'issue-item';
+
+							// Issue header
+							const issueHeader = document.createElement('div');
+							issueHeader.className = 'issue-header';
+
+							const issueTitle = document.createElement('div');
+							issueTitle.className = 'issue-title';
+							issueTitle.textContent = issue.type;
+
+							const issueSeverity = document.createElement('span');
+							issueSeverity.className = `issue-severity severity-${issue.severity.toLowerCase()}`;
+							issueSeverity.textContent = issue.severity;
+
+							issueHeader.appendChild(issueTitle);
+							issueHeader.appendChild(issueSeverity);
+							issueItem.appendChild(issueHeader);
+
+							// Issue description
+							const issueDesc = document.createElement('div');
+							issueDesc.className = 'issue-description';
+							issueDesc.textContent = issue.description;
+							issueItem.appendChild(issueDesc);
+
+							// Issue location
+							if (issue.location) {
+								const issueLocation = document.createElement('div');
+								issueLocation.className = 'issue-location';
+								issueLocation.textContent = `Location: Lines ${issue.location.startLine}-${issue.location.endLine}`;
+								issueLocation.style.cursor = 'pointer';
+								issueLocation.title = 'Click to highlight in editor';
+								issueLocation.addEventListener('click', () => {
+									vscode.postMessage({
+										command: 'highlightIssue',
+										data: {
+											startLine: issue.location.startLine,
+											endLine: issue.location.endLine
+										}
+									});
+								});
+								issueItem.appendChild(issueLocation);
+
+								// Issue code
+								if (issue.location.code) {
+									const issueCode = document.createElement('pre');
+									issueCode.className = 'issue-code';
+									issueCode.textContent = issue.location.code;
+									issueItem.appendChild(issueCode);
+								}
+							}
+
+							// Issue recommendation
+							if (issue.recommendation) {
+								const issueRecommendation = document.createElement('div');
+								issueRecommendation.className = 'issue-recommendation';
+								issueRecommendation.innerHTML = `<strong>Recommendation:</strong> ${issue.recommendation}`;
+								issueItem.appendChild(issueRecommendation);
+							}
+
+							// Issue CWE
+							if (issue.cwe) {
+								const issueCWE = document.createElement('div');
+								issueCWE.className = 'issue-cwe';
+								issueCWE.textContent = `CWE: ${issue.cwe}`;
+								issueItem.appendChild(issueCWE);
+							}
+
+							fileItem.appendChild(issueItem);
+						}
+					}
+
+					container.appendChild(fileItem);
+				}
+
+				// Show message if no issues found
+				if (totalIssues === 0) {
+					const noIssues = document.createElement('div');
+					noIssues.className = 'no-issues';
+					noIssues.textContent = 'No security issues found in any scanned files.';
+					container.appendChild(noIssues);
+				}
+			}
+
+			/**
+			 * Display security recommendations
+			 * @param {Array} scanResults Array of scan results
+			 */
+			function displayRecommendations(scanResults) {
+				const container = document.getElementById('recommendations-container');
+				container.innerHTML = '';
+
+				// Get all unique recommendations
+				const recommendations = new Map();
+
+				for (const result of scanResults) {
+					const issues = result.issues || [];
+					for (const issue of issues) {
+						if (issue.recommendation) {
+							// Use type and severity as a key to group similar issues
+							const key = `${issue.type}-${issue.severity}`;
+							if (!recommendations.has(key)) {
+								recommendations.set(key, {
+									type: issue.type,
+									severity: issue.severity,
+									recommendation: issue.recommendation,
+									count: 1,
+									cwe: issue.cwe
+								});
+							} else {
+								recommendations.get(key).count++;
+							}
+						}
+					}
+				}
+
+				// Sort recommendations by severity
+				const sortedRecommendations = Array.from(recommendations.values()).sort((a, b) => {
+					const severityOrder = { 'critical': 0, 'high': 1, 'medium': 2, 'low': 3 };
+					return severityOrder[a.severity.toLowerCase()] - severityOrder[b.severity.toLowerCase()];
+				});
+
+				// Display recommendations
+				if (sortedRecommendations.length === 0) {
+					const noRecommendations = document.createElement('div');
+					noRecommendations.className = 'no-issues';
+					noRecommendations.textContent = 'No security recommendations available.';
+					container.appendChild(noRecommendations);
+				} else {
+					for (const rec of sortedRecommendations) {
+						const recItem = document.createElement('div');
+						recItem.className = 'issue-item';
+
+						// Recommendation header
+						const recHeader = document.createElement('div');
+						recHeader.className = 'issue-header';
+
+						const recTitle = document.createElement('div');
+						recTitle.className = 'issue-title';
+						recTitle.textContent = `${rec.type} (${rec.count} ${rec.count === 1 ? 'instance' : 'instances'})`;
+
+						const recSeverity = document.createElement('span');
+						recSeverity.className = `issue-severity severity-${rec.severity.toLowerCase()}`;
+						recSeverity.textContent = rec.severity;
+
+						recHeader.appendChild(recTitle);
+						recHeader.appendChild(recSeverity);
+						recItem.appendChild(recHeader);
+
+						// Recommendation body
+						const recBody = document.createElement('div');
+						recBody.className = 'issue-recommendation';
+						recBody.innerHTML = rec.recommendation;
+						recItem.appendChild(recBody);
+
+						// CWE reference
+						if (rec.cwe) {
+							const recCWE = document.createElement('div');
+							recCWE.className = 'issue-cwe';
+							recCWE.textContent = `CWE: ${rec.cwe}`;
+							recItem.appendChild(recCWE);
+						}
+
+						container.appendChild(recItem);
+					}
+				}
+			}
+
+			/**
+			 * Fix all issues across files
+			 */
+			function fixAllIssues() {
+				// Check if there are any issues to fix
+				let hasIssues = false;
+				for (const result of scanResults) {
+					if (result.issues && result.issues.length > 0) {
+						hasIssues = true;
+						break;
+					}
+				}
+
+				if (!hasIssues) {
+					vscode.postMessage({
+						command: 'showMessage',
+						data: { message: 'No issues to fix', type: 'info' }
+					});
+					return;
+				}
+
+				// Send message to fix all issues
+				vscode.postMessage({
+					command: 'fixAllIssues',
+					data: { scanResults }
+				});
+			}
+
+			/**
+			 * Toggle export options visibility
+			 */
+			function toggleExportOptions() {
+				const exportOptions = document.querySelector('.export-options');
+				exportOptions.style.display = exportOptions.style.display === 'none' ? 'inline-block' : 'none';
+			}
+
+			/**
+			 * Export security report
+			 */
+			function exportReport() {
+				const format = document.getElementById('export-format').value;
+				vscode.postMessage({
+					command: 'exportReport',
+					data: { format }
+				});
+			}
+		})();
+	</script>
+</body>
+</html>

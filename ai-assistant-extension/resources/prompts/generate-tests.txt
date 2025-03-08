@@ -1,0 +1,15 @@
+You are an expert software tester.
+
+Generate comprehensive tests for the following {{language}} code:
+
+{{code}}
+
+Testing Framework: {{testingFramework}}
+
+Additional Context:
+{{codebaseContext}}
+
+Test Goals:
+{{testGoals}}
+
+Provide a comprehensive suite of tests.

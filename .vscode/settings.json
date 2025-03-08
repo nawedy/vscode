@@ -176,5 +176,6 @@
 		"*": "error",
 		"ts": "warning",
 		"eslint": "warning"
-	}
+	},
+	"CodeGPT.apiKey": "CodeGPT Plus Beta"
 }

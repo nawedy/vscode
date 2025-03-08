@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Generated Code</title>
+	<style>
+		:root {
+			--container-padding: 20px;
+			--border-radius: 4px;
+		}
+
+		body {
+			padding: 0;
+			margin: 0;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			color: var(--vscode-editor-foreground);
+			background-color: var(--vscode-editor-background);
+		}
+
+		.container {
+			padding: var(--container-padding);
+			max-width: 1000px;
+			margin: 0 auto;
+		}
+
+		header {
+			margin-bottom: 20px;
+		}
+
+		h1 {
+			font-size: 1.8em;
+			margin-bottom: 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		h2 {
+			font-size: 1.5em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		h3 {
+			font-size: 1.2em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		pre {
+			background-color: var(--vscode-textCodeBlock-background);
+			color: var(--vscode-textCodeBlock-foreground);
+			padding: 16px;
+			border-radius: var(--border-radius);
+			overflow: auto;
+			font-family: var(--vscode-editor-font-family);
+			font-size: var(--vscode-editor-font-size);
+			margin: 1em 0;
+		}
+
+		code {
+			font-family: var(--vscode-editor-font-family);
+			font-size: var(--vscode-editor-font-size);
+		}
+
+		.tabs {
+			display: flex;
+			margin-bottom: 1em;
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.tab {
+			padding: 0.5em 1em;
+			cursor: pointer;
+			border: 1px solid transparent;
+			border-bottom: none;
+			border-top-left-radius: 3px;
+			border-top-right-radius: 3px;
+			margin-right: 0.5em;
+		}
+
+		.tab.active {
+			background-color: var(--vscode-tab-activeBackground);
+			border-color: var(--vscode-panel-border);
+			color: var(--vscode-tab-activeForeground);
+		}
+
+		.tab-content {
+			display: none;
+		}
+
+		.tab-content.active {
+			display: block;
+		}
+
+		p {
+			line-height: 1.6;
+		}
+
+		.button-container {
+			margin-top: 1em;
+			display: flex;
+			gap: 10px;
+		}
+
+		button {
+			background-color: var(--vscode-button-background);
+			color: var(--vscode-button-foreground);
+			border: none;
+			padding: 6px 12px;
+			cursor: pointer;
+			border-radius: var(--border-radius);
+		}
+
+		button:hover {
+			background-color: var(--vscode-button-hoverBackground);
+		}
+
+		.explanation {
+			margin-top: 1em;
+			line-height: 1.6;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<header>
+			<h1>Generated Code</h1>
+		</header>
+
+		<div class="tabs">
+			<div class="tab active" data-tab="code">Code</div>
+			<div class="tab" data-tab="explanation">Explanation</div>
+		</div>
+
+		<div id="code" class="tab-content active">
+			<h2>Generated {{language}} Code</h2>
+			<div class="button-container">
+				<button id="create-file-btn">Create New File</button>
+				<button id="copy-clipboard-btn">Copy to Clipboard</button>
+			</div>
+			<pre><code class="language-{{language}}">{{code}}</code></pre>
+		</div>
+
+		<div id="explanation" class="tab-content">
+			<h2>Code Explanation</h2>
+			<div class="explanation">
+				{{explanation}}
+			</div>
+		</div>
+	</div>
+
+	<script>
+		(function() {
+			// Tab switching functionality
+			const tabs = document.querySelectorAll('.tab');
+			tabs.forEach(tab => {
+				tab.addEventListener('click', () => {
+					// Remove active class from all tabs
+					tabs.forEach(t => t.classList.remove('active'));
+
+					// Add active class to clicked tab
+					tab.classList.add('active');
+
+					// Hide all tab content
+					document.querySelectorAll('.tab-content').forEach(content => {
+						content.classList.remove('active');
+					});
+
+					// Show the clicked tab content
+					const tabName = tab.getAttribute('data-tab');
+					document.getElementById(tabName).classList.add('active');
+				});
+			});
+
+			// Process explanation for markdown-like formatting
+			const explanationDiv = document.querySelector('.explanation');
+			if (explanationDiv) {
+				let content = explanationDiv.innerHTML;
+
+				// Convert headers (## Header)
+				content = content.replace(/## ([^\n]+)/g, '<h3>$1</h3>');
+				content = content.replace(/### ([^\n]+)/g, '<h4>$1</h4>');
+
+				// Convert code blocks (```code```)
+				content = content.replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>');
+
+				// Convert inline code (`code`)
+				content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+				// Convert bullet points
+				content = content.replace(/^\s*-\s+(.+)$/gm, '<li>$1</li>');
+				content = content.replace(/(<li>.+<\/li>\n)+/g, '<ul>$&</ul>');
+
+				// Convert numbered lists
+				content = content.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+				content = content.replace(/(<li>.+<\/li>\n)+/g, '<ol>$&</ol>');
+
+				explanationDiv.innerHTML = content;
+			}
+
+			// Get vscode API
+			const vscode = acquireVsCodeApi();
+
+			// Set up button click handlers
+			document.getElementById('create-file-btn').addEventListener('click', () => {
+				vscode.postMessage({
+					command: 'createFile',
+					language: '{{language}}'
+				});
+			});
+
+			document.getElementById('copy-clipboard-btn').addEventListener('click', () => {
+				vscode.postMessage({
+					command: 'copyToClipboard'
+				});
+			});
+		})();
+	</script>
+</body>
+</html>

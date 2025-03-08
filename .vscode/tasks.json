@@ -286,6 +286,39 @@
 			"dependsOn": [
 				"Core - Build"
 			]
+		},
+		{
+			"label": "Deploy AI Assistant Extension",
+			"type": "shell",
+			"command": "npm run deploy-ai-assistant",
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Deploy AI Assistant Extension (Quick)",
+			"type": "shell",
+			"command": "npm run deploy-ai-assistant -- --skip-lint --skip-tests",
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Deploy AI Assistant Extension (Publish)",
+			"type": "shell",
+			"command": "npm run deploy-ai-assistant:publish",
+			"group": "build",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": []
 		}
 	]
 }

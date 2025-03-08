@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feature Implementation</title>
+  <link rel="stylesheet" href="{{cssUri}}">
+  <style>
+    .feature-implementation {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    .feature-header {
+      padding: 15px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .implementation-plan {
+      margin: 15px 0;
+      padding: 15px;
+      background-color: var(--vscode-editor-lineHighlightBackground);
+      border-radius: 4px;
+    }
+    .feature-body {
+      flex: 1;
+      overflow: auto;
+      padding: 15px;
+    }
+    .file-section {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+    }
+    .file-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .file-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .file-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: white;
+      background-color: var(--vscode-editorInfo-foreground);
+    }
+    .file-badge.new {
+      background-color: #4caf50;
+    }
+    .file-badge.modified {
+      background-color: #ff9800;
+    }
+    .file-content {
+      margin-top: 10px;
+      padding: 10px;
+      max-height: 400px;
+      overflow-y: auto;
+      background-color: var(--vscode-editor-background);
+      border-radius: 4px;
+      position: relative;
+    }
+    .code-preview {
+      font-family: var(--vscode-editor-font-family);
+      font-size: var(--vscode-editor-font-size);
+      white-space: pre;
+    }
+    .button-bar {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 15px;
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+    .expand-button {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: var(--vscode-button-background);
+      border: none;
+      color: var(--vscode-button-foreground);
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .expanded {
+      max-height: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="feature-implementation">
+    <div class="feature-header">
+      <h2>Feature Implementation: {{featureDescription}}</h2>
+      <div class="implementation-plan">
+        <h3>Implementation Plan</h3>
+        <div id="plan-content">{{implementationPlan}}</div>
+      </div>
+    </div>
+
+    <div class="feature-body">
+      <h3>Generated Files</h3>
+      <div id="file-sections">
+        <!-- File sections will be inserted here -->
+      </div>
+    </div>
+
+    <div class="button-bar">
+      <button id="implement-all-button">Implement All Files</button>
+    </div>
+  </div>
+
+  <script type="application/json" id="files-data">
+    {{files}}
+  </script>
+
+  <script nonce="{{nonce}}">
+    // Initialize data
+    let files = [];
+    try {
+      const filesData = document.getElementById('files-data');
+      if (filesData) {
+        files = JSON.parse(filesData.textContent);
+      }
+    } catch (e) {
+      console.error('Failed to parse files data:', e);
+    }
+
+    // Set initial state
+    window.initialData = {
+      files,
+      featureDescription: "{{featureDescription}}",
+      implementationPlan: "{{implementationPlan}}"
+    };
+
+    // Render file sections
+    function renderFileSections() {
+      const container = document.getElementById('file-sections');
+
+      if (!files || files.length === 0) {
+        container.innerHTML = '<p>No files to implement.</p>';
+        return;
+      }
+
+      let html = '';
+
+      files.forEach((file, index) => {
+        const fileName = file.filePath.split('/').pop();
+        const isNew = file.isNew === true;
+
+        html += `
+          <div class="file-section">
+            <div class="file-header">
+              <div>
+                <h4>${fileName}</h4>
+                <small>${file.filePath}</small>
+              </div>
+              <div class="file-actions">
+                <span class="file-badge ${isNew ? 'new' : 'modified'}">
+                  ${isNew ? 'New File' : 'Modified File'}
+                </span>
+                <button class="open-file-button" data-file-index="${index}">Open File</button>
+                <button class="${isNew ? 'create-file-button' : 'update-file-button'}" data-file-index="${index}">
+                  ${isNew ? 'Create File' : 'Update File'}
+                </button>
+              </div>
+            </div>
+
+            <div class="file-content" id="file-content-${index}">
+              <button class="expand-button" data-file-index="${index}">Expand</button>
+              <pre class="code-preview">${escapeHtml(file.code)}</pre>
+            </div>
+          </div>`;
+      });
+
+      container.innerHTML = html;
+    }
+
+    // Helper function to escape HTML
+    function escapeHtml(unsafe) {
+      return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Initialize the view
+    function initialize() {
+      renderFileSections();
+      setupEventListeners();
+    }
+
+    // Setup event listeners
+    function setupEventListeners() {
+      // Implement all button
+      document.getElementById('implement-all-button').addEventListener('click', function() {
+        const vscode = acquireVsCodeApi();
+        vscode.postMessage({
+          command: 'implementAll',
+          data: {
+            files
+          }
+        });
+      });
+
+      // Create file buttons
+      document.querySelectorAll('.create-file-button').forEach(button => {
+        button.addEventListener('click', function() {
+          const fileIndex = parseInt(this.dataset.fileIndex);
+          const file = files[fileIndex];
+
+          const vscode = acquireVsCodeApi();
+          vscode.postMessage({
+            command: 'createFile',
+            data: {
+              filePath: file.filePath,
+              content: file.code
+            }
+          });
+        });
+      });
+
+      // Update file buttons
+      document.querySelectorAll('.update-file-button').forEach(button => {
+        button.addEventListener('click', function() {
+          const fileIndex = parseInt(this.dataset.fileIndex);
+          const file = files[fileIndex];
+
+          const vscode = acquireVsCodeApi();
+          vscode.postMessage({
+            command: 'updateFile',
+            data: {
+              filePath: file.filePath,
+              content: file.code
+            }
+          });
+        });
+      });
+
+      // Open file buttons
+      document.querySelectorAll('.open-file-button').forEach(button => {
+        button.addEventListener('click', function() {
+          const fileIndex = parseInt(this.dataset.fileIndex);
+          const file = files[fileIndex];
+
+          const vscode = acquireVsCodeApi();
+          vscode.postMessage({
+            command: 'openFile',
+            data: {
+              filePath: file.filePath
+            }
+          });
+        });
+      });
+
+      // Expand buttons
+      document.querySelectorAll('.expand-button').forEach(button => {
+        button.addEventListener('click', function() {
+          const fileIndex = this.dataset.fileIndex;
+          const contentDiv = document.getElementById(`file-content-${fileIndex}`);
+
+          if (contentDiv.classList.contains('expanded')) {
+            contentDiv.classList.remove('expanded');
+            this.textContent = 'Expand';
+          } else {
+            contentDiv.classList.add('expanded');
+            this.textContent = 'Collapse';
+          }
+        });
+      });
+    }
+
+    // Initialize when DOM is loaded
+    document.addEventListener('DOMContentLoaded', initialize);
+  </script>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>

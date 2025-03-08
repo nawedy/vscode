@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Explanation</title>
+  <style>
+    :root {
+      --container-padding: 20px;
+      --border-radius: 4px;
+    }
+
+    body {
+      padding: 0;
+      margin: 0;
+      font-family: var(--vscode-font-family);
+      font-size: var(--vscode-font-size);
+      color: var(--vscode-editor-foreground);
+      background-color: var(--vscode-editor-background);
+    }
+
+    .container {
+      padding: var(--container-padding);
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 1.8em;
+      margin-bottom: 0.5em;
+      color: var(--vscode-editor-foreground);
+    }
+
+    h2 {
+      font-size: 1.5em;
+      margin: 1em 0 0.5em;
+      color: var(--vscode-editor-foreground);
+    }
+
+    h3 {
+      font-size: 1.2em;
+      margin: 1em 0 0.5em;
+      color: var(--vscode-editor-foreground);
+    }
+
+    pre {
+      background-color: var(--vscode-textCodeBlock-background);
+      color: var(--vscode-textCodeBlock-foreground);
+      padding: 16px;
+      border-radius: var(--border-radius);
+      overflow: auto;
+      font-family: var(--vscode-editor-font-family);
+      font-size: var(--vscode-editor-font-size);
+      margin: 1em 0;
+    }
+
+    code {
+      font-family: var(--vscode-editor-font-family);
+      font-size: var(--vscode-editor-font-size);
+      background-color: var(--vscode-textCodeBlock-background);
+      padding: 0.2em 0.4em;
+      border-radius: 3px;
+    }
+
+    .detail-level {
+      display: inline-block;
+      padding: 0.25em 0.6em;
+      font-size: 0.8em;
+      font-weight: 600;
+      border-radius: 3px;
+      background-color: var(--vscode-badge-background);
+      color: var(--vscode-badge-foreground);
+    }
+
+    .file-info {
+      margin: 1em 0;
+      padding: 0.5em 1em;
+      background-color: var(--vscode-panel-background);
+      border-radius: var(--border-radius);
+    }
+
+    .tabs {
+      display: flex;
+      margin-bottom: 1em;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+
+    .tab {
+      padding: 0.5em 1em;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-top-left-radius: 3px;
+      border-top-right-radius: 3px;
+      margin-right: 0.5em;
+    }
+
+    .tab.active {
+      background-color: var(--vscode-tab-activeBackground);
+      border-color: var(--vscode-panel-border);
+      color: var(--vscode-tab-activeForeground);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    p {
+      line-height: 1.6;
+    }
+
+    ul, ol {
+      padding-left: 2em;
+    }
+
+    .function {
+      margin-bottom: 2em;
+      padding-bottom: 1em;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+
+    .explanation {
+      margin-top: 2em;
+    }
+
+    .highlight {
+      background-color: rgba(255, 255, 0, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Code Explanation</h1>
+      <div class="file-info">
+        <div><strong>File:</strong> {{fileName}}</div>
+        <div><strong>Language:</strong> {{language}}</div>
+        <div><strong>Detail Level:</strong> <span class="detail-level">{{detailLevel}}</span></div>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="explanation">Explanation</div>
+      <div class="tab" data-tab="code">Source Code</div>
+    </div>
+
+    <div class="tab-content active" id="explanation">
+      <div class="explanation">
+        {{explanation}}
+      </div>
+    </div>
+
+    <div class="tab-content" id="code">
+      <pre><code class="language-{{language}}">{{code}}</code></pre>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // Tab switching functionality
+      const tabs = document.querySelectorAll('.tab');
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          // Remove active class from all tabs
+          tabs.forEach(t => t.classList.remove('active'));
+
+          // Add active class to clicked tab
+          tab.classList.add('active');
+
+          // Hide all tab content
+          document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+          });
+
+          // Show the clicked tab content
+          const tabName = tab.getAttribute('data-tab');
+          document.getElementById(tabName).classList.add('active');
+        });
+      });
+
+      // Process explanation for markdown-like formatting
+      const explanationDiv = document.querySelector('.explanation');
+      if (explanationDiv) {
+        let content = explanationDiv.innerHTML;
+
+        // Convert headers (## Header)
+        content = content.replace(/## ([^\n]+)/g, '<h2>$1</h2>');
+        content = content.replace(/### ([^\n]+)/g, '<h3>$1</h3>');
+
+        // Convert code blocks (```code
+  </script>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>

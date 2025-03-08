@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>AI Assistant Chat</title>
+	<link rel="stylesheet" href="{{cssUri}}">
+	<style>
+		:root {
+			--container-padding: 0;
+			--input-padding-vertical: 6px;
+			--input-padding-horizontal: 8px;
+			--input-margin-vertical: 8px;
+			--input-margin-horizontal: 0;
+			--border-radius: 4px;
+			--message-padding: 12px;
+			--animation-duration: 0.3s;
+		}
+
+		body {
+			padding: 0;
+			margin: 0;
+			color: var(--vscode-editor-foreground);
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			background-color: var(--vscode-editor-background);
+			display: flex;
+			flex-direction: column;
+			height: 100vh;
+			overflow: hidden;
+		}
+
+		.chat-container {
+			display: flex;
+			flex-direction: row;
+			height: 100vh;
+		}
+
+		.sidebar {
+			width: 220px;
+			border-right: 1px solid var(--vscode-panel-border);
+			display: flex;
+			flex-direction: column;
+			background-color: var(--vscode-sideBar-background);
+			overflow: hidden;
+		}
+
+		.sidebar-title {
+			padding: 10px;
+			font-weight: bold;
+			font-size: 1.1em;
+			border-bottom: 1px solid var(--vscode-panel-border);
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+
+		.sidebar-action {
+			cursor: pointer;
+			padding: 2px;
+			border-radius: 3px;
+			color: var(--vscode-icon-foreground);
+		}
+
+		.sidebar-action:hover {
+			background-color: var(--vscode-toolbar-hoverBackground);
+		}
+
+		.chat-sessions {
+			flex: 1;
+			overflow-y: auto;
+			padding: 8px 0;
+		}
+
+		.chat-session {
+			padding: 6px 10px;
+			cursor: pointer;
+			border-radius: 3px;
+			margin: 2px 4px;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 0.9em;
+		}
+
+		.chat-session:hover {
+			background-color: var(--vscode-list-hoverBackground);
+		}
+
+		.chat-session.active {
+			background-color: var(--vscode-list-activeSelectionBackground);
+			color: var(--vscode-list-activeSelectionForeground);
+		}
+
+		.session-icon {
+			font-size: 14px;
+		}
+
+		.session-name {
+			flex: 1;
+			text-overflow: ellipsis;
+			overflow: hidden;
+		}
+
+		.session-actions {
+			opacity: 0;
+			display: flex;
+			gap: 4px;
+		}
+
+		.chat-session:hover .session-actions {
+			opacity: 1;
+		}
+
+		.session-action {
+			cursor: pointer;
+			font-size: 12px;
+			padding: 2px;
+			border-radius: 3px;
+		}
+
+		.session-action:hover {
+			background-color: var(--vscode-toolbar-hoverBackground);
+		}
+
+		.main-content {
+			flex: 1;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+		}
+
+		.chat-header {
+			padding: 10px;
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.chat-title {
+			font-weight: bold;
+		}
+
+		.chat-messages {
+			flex: 1;
+			overflow-y: auto;
+			padding: 10px;
+			display: flex;
+			flex-direction: column;
+			gap: 16px;
+		}
+
+		.message-container {
+			display: flex;
+			flex-direction: column;
+			max-width: 90%;
+			animation: fadeIn var(--animation-duration) ease;
+		}
+
+		.message-container.user {
+			align-self: flex-end;
+		}
+
+		.message-container.system {
+			align-self: center;
+			max-width: 80%;
+		}
+
+		.message-container.assistant {
+			align-self: flex-start;
+		}
+
+		.message {
+			padding: var(--message-padding);
+			border-radius: var(--border-radius);
+			overflow-wrap: break-word;
+		}
+
+		.message.user {
+			background-color: var(--vscode-button-background);
+			color: var(--vscode-button-foreground);
+			border-radius: var(--border-radius) var(--border-radius) 0 var(--border-radius);
+		}
+
+		.message.system {
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			font-style: italic;
+			font-size: 0.9em;
+			border-radius: var(--border-radius);
+		}
+
+		.message.assistant {
+			background-color: var(--vscode-editor-lineHighlightBackground);
+			border-radius: 0 var(--border-radius) var(--border-radius) var(--border-radius);
+		}
+
+		.message.error {
+			background-color: var(--vscode-inputValidation-errorBackground);
+			color: var(--vscode-inputValidation-errorForeground);
+			border: 1px solid var(--vscode-inputValidation-errorBorder);
+		}
+
+		.message-role {
+			font-size: 0.8em;
+			margin-bottom: 4px;
+			color: var(--vscode-descriptionForeground);
+		}
+
+		.message-actions {
+			display: flex;
+			gap: 8px;
+			margin-top: 4px;
+			font-size: 0.8em;
+		}
+
+		.message-action {
+			cursor: pointer;
+			color: var(--vscode-textLink-foreground);
+		}
+
+		.message-action:hover {
+			text-decoration: underline;
+		}
+
+		.message-timestamp {
+			font-size: 0.8em;
+			color: var(--vscode-descriptionForeground);
+			margin-top: 4px;
+			align-self: flex-end;
+		}
+
+		.chat-input {
+			padding: 10px;
+			border-top: 1px solid var(--vscode-panel-border);
+		}
+
+		.input-container {
+			display: flex;
+			flex-direction: column;
+		}
+
+		.input-row {
+			display: flex;
+			gap: 8px;
+		}
+
+		textarea {
+			flex: 1;
+			min-height: 60px;
+			max-height: 200px;
+			padding: var(--input-padding-vertical) var(--input-padding-horizontal);
+			border-radius: var(--border-radius);
+			border: 1px solid var(--vscode-input-border);
+			background-color: var(--vscode-input-background);
+			color: var(--vscode-input-foreground);
+			resize: vertical;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			outline: none;
+		}
+
+		textarea:focus {
+			border-color: var(--vscode-focusBorder);
+		}
+
+		.send-button {
+			align-self: flex-end;
+			padding: 6px 12px;
+			border: none;
+			background-color: var(--vscode-button-background);
+			color: var(--vscode-button-foreground);
+			border-radius: var(--border-radius);
+			cursor: pointer;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+		}
+
+		.send-button:hover {
+			background-color: var(--vscode-button-hoverBackground);
+		}
+
+		.send-button:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+
+		.input-placeholder {
+			padding: 16px;
+			text-align: center;
+			color: var(--vscode-descriptionForeground);
+			font-style: italic;
+		}
+
+		.empty-chat {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			height: 100%;
+			text-align: center;
+			padding: 20px;
+			color: var(--vscode-descriptionForeground);
+		}
+
+		.empty-chat-icon {
+			font-size: 48px;
+			margin-bottom: 20px;
+			opacity: 0.5;
+		}
+
+		.empty-chat-title {
+			font-size: 1.2em;
+			margin-bottom: 10px;
+		}
+
+		.suggestions-container {
+			margin-top: 20px;
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+			width: 100%;
+			max-width: 400px;
+		}
+
+		.suggestion-button {
+			padding: 8px 12px;
+			border: 1px solid var(--vscode-button-border);
+			background-color: var(--vscode-button-secondaryBackground);
+			color: var(--vscode-button-secondaryForeground);
+			border-radius: var(--border-radius);
+			cursor: pointer;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			text-align: left;
+		}
+
+		.suggestion-button:hover {
+			background-color: var(--vscode-button-secondaryHoverBackground);
+		}
+
+		code {
+			font-family: var(--vscode-editor-font-family);
+			font-size: var(--vscode-editor-font-size);
+			background-color: var(--vscode-textCodeBlock-background);
+			padding: 2px 4px;
+			border-radius: 3px;
+		}
+
+		pre {
+			background-color: var(--vscode-textCodeBlock-background);
+			padding: 10px;
+			border-radius: var(--border-radius);
+			overflow-x: auto;
+			margin: 8px 0;
+		}
+
+		pre code {
+			background-color: transparent;
+			padding: 0;
+		}
+
+		.markdown-content h1,
+		.markdown-content h2,
+		.markdown-content h3,
+		.markdown-content h4 {
+			margin-top: 1em;
+			margin-bottom: 0.5em;
+		}
+
+		.markdown-content p {
+			margin-top: 0.5em;
+			margin-bottom: 0.5em;
+		}
+
+		.markdown-content ul,
+		.markdown-content ol {
+			padding-left: 20px;
+			margin: 0.5em 0;
+		}
+
+		.markdown-content blockquote {
+			margin: 0.5em 0;
+			padding-left: 10px;
+			border-left: 3px solid var(--vscode-textBlockQuote-border);
+			color: var(--vscode-textBlockQuote-foreground);
+		}
+
+		.typing-indicator {
+			display: flex;
+			gap: 4px;
+			padding: 8px;
+			align-self: flex-start;
+		}
+
+		.typing-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background-color: var(--vscode-editor-foreground);
+			opacity: 0.6;
+			animation: typing-animation 1.4s infinite ease-in-out;
+		}
+
+		.typing-dot:nth-child(2) {
+			animation-delay: 0.2s;
+		}
+
+		.typing-dot:nth-child(3) {
+			animation-delay: 0.4s;
+		}
+
+		@keyframes typing-animation {
+			0%, 60%, 100% {
+				transform: translateY(0);
+			}
+			30% {
+				transform: translateY(-4px);
+			}
+		}
+
+		@keyframes fadeIn {
+			from {
+				opacity: 0;
+				transform: translateY(10px);
+			}
+			to {
+				opacity: 1;
+				transform: translateY(0);
+			}
+		}
+
+		.context-container {
+			padding: 10px;
+			border-top: 1px solid var(--vscode-panel-border);
+		}
+
+		.context-header {
+			font-weight: bold;
+			margin-bottom: 8px;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			cursor: pointer;
+		}
+
+		.context-toggle {
+			font-size: 12px;
+		}
+
+		.context-content {
+			font-size: 0.9em;
+			max-height: 200px;
+			overflow-y: auto;
+		}
+
+		.context-item {
+			padding: 4px 0;
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.context-item:last-child {
+			border-bottom: none;
+		}
+
+		.collapsed .context-content {
+			display: none;
+		}
+	</style>
+</head>
+<body>
+	<div class="chat-container">
+		<!-- Sidebar with chat sessions -->
+		<div class="sidebar">
+			<div class="sidebar-title">
+				<span>Conversations</span>
+				<span class="sidebar-action" id="new-chat-button" title="New Conversation">
+					<i>+</i>
+				</span>
+			</div>
+			<div class="chat-sessions" id="chat-sessions">
+				<!-- Chat sessions will be rendered here -->
+			</div>
+		</div>
+
+		<!-- Main chat area -->
+		<div class="main-content">
+			<div class="chat-header">
+				<div class="chat-title" id="chat-title">AI Assistant</div>
+			</div>
+
+			<div class="chat-messages" id="chat-messages">
+				<!-- Messages will be rendered here -->
+				<div class="empty-chat" id="empty-chat">
+					<div class="empty-chat-icon">💬</div>
+					<div class="empty-chat-title">AI Assistant</div>
+					<p>Start a conversation with the AI assistant. Ask coding questions, request explanations, or get help with programming tasks.</p>
+
+					<div class="suggestions-container">
+						<button class="suggestion-button">Generate a function to sort an array of objects</button>
+						<button class="suggestion-button">Explain how promises work in JavaScript</button>
+						<button class="suggestion-button">Help me fix this bug in my React component</button>
+						<button class="suggestion-button">Suggest ways to optimize my database query</button>
+					</div>
+				</div>
+			</div>
+
+			<div id="typing-indicator" class="typing-indicator" style="display: none;">
+				<div class="typing-dot"></div>
+				<div class="typing-dot"></div>
+				<div class="typing-dot"></div>
+			</div>
+
+			<div class="chat-input">
+				<div class="input-container">
+					<div class="input-row">
+						<textarea id="message-input" placeholder="Type your message here..." rows="3"></textarea>
+					</div>
+					<div class="input-row" style="justify-content: space-between; margin-top: 8px;">
+						<div></div> <!-- Placeholder for future controls -->
+						<button id="send-button" class="send-button" disabled>Send</button>
+					</div>
+				</div>
+			</div>
+
+			<div class="context-container collapsed" id="context-container">
+				<div class="context-header" id="context-header">
+					<span>Context Information</span>
+					<span class="context-toggle" id="context-toggle">Show</span>
+				</div>
+				<div class="context-content" id="context-content">
+					<!-- Context information will be rendered here -->
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script nonce="{{nonce}}">
+		(function() {
+			// Get VS Code API
+			const vscode = acquireVsCodeApi();
+
+			// Get data from template
+			let sessions = JSON.parse('{{sessions}}' || '[]');
+			const currentSessionId = '{{currentSessionId}}';
+			let context = JSON.parse('{{context}}' || '{}');
+			const settings = JSON.parse('{{settings}}' || '{}');
+
+			// DOM Elements
+			const chatSessions = document.getElementById('chat-sessions');
+			const chatMessages = document.getElementById('chat-messages');
+			const chatTitle = document.getElementById('chat-title');
+			const emptyChat = document.getElementById('empty-chat');
+			const messageInput = document.getElementById('message-input');
+			const sendButton = document.getElementById('send-button');
+			const newChatButton = document.getElementById('new-chat-button');
+			const typingIndicator = document.getElementById('typing-indicator');
+			const contextContainer = document.getElementById('context-container');
+			const contextHeader = document.getElementById('context-header');
+			const contextToggle = document.getElementById('context-toggle');
+			const contextContent = document.getElementById('context-content');
+
+			// Initialize
+			renderSessions();
+			renderCurrentSession();
+			renderContextInfo();
+
+			// Event Listeners
+			messageInput.addEventListener('input', function() {
+				sendButton.disabled = !this.value.trim();
+			});
+
+			messageInput.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' && !e.shiftKey && !sendButton.disabled) {
+					e.preventDefault();
+					sendMessage();
+				}
+			});
+
+			sendButton.addEventListener('click', sendMessage);
+			newChatButton.addEventListener('click', createNewSession);
+
+			contextHeader.addEventListener('click', function() {
+				contextContainer.classList.toggle('collapsed');
+				contextToggle.textContent = contextContainer.classList.contains('collapsed') ? 'Show' : 'Hide';
+			});
+
+			// Add click handlers for suggestion buttons
+			document.querySelectorAll('.suggestion-button').forEach(button => {
+				button.addEventListener('click', function() {
+					messageInput.value = this.textContent;
+					sendButton.disabled = false;
+					sendMessage();
+				});
+			});
+
+			/**
+			 * Render all chat sessions in the sidebar
+			 */
+			function renderSessions() {
+				chatSessions.innerHTML = '';
+
+				if (!sessions || sessions.length === 0) {
+					const emptyItem = document.createElement('div');
+					emptyItem.className = 'input-placeholder';
+					emptyItem.textContent = 'No conversations yet';
+					chatSessions.appendChild(emptyItem);
+					return;
+				}
+
+				// Sort sessions by updated date (newest first)
+				sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+
+				for (const session of sessions) {
+					const isActive = session.id === currentSessionId;
+
+					const sessionElement = document.createElement('div');
+					sessionElement.className = `chat-session ${isActive ? 'active' : ''}`;
+					sessionElement.dataset.id = session.id;
+					sessionElement.innerHTML = `
+						<span class="session-icon">💬</span>
+						<span class="session-name">${escapeHtml(session.title)}</span>
+						<div class="session-actions">
+							<span class="session-action rename-session" title="Rename">✏️</span>
+							<span class="session-action delete-session" title="Delete">🗑️</span>
+						</div>
+					`;
+
+					// Add click handler to load session
+					sessionElement.addEventListener('click', function(e) {
+						// Ignore clicks on action buttons
+						if (e.target.closest('.session-action')) {
+							return;
+						}
+
+						loadSession(session.id);
+					});
+
+					// Add action handlers
+					const renameAction = sessionElement.querySelector('.rename-session');
+					if (renameAction) {
+						renameAction.addEventListener('click', function() {
+							renameSession(session.id);
+						});
+					}
+
+					const deleteAction = sessionElement.querySelector('.delete-session');
+					if (deleteAction) {
+						deleteAction.addEventListener('click', function() {
+							deleteSession(session.id);
+						});
+					}
+
+					chatSessions.appendChild(sessionElement);
+				}
+			}
+
+			/**
+			 * Render the current chat session
+			 */
+			function renderCurrentSession() {
+				chatMessages.innerHTML = '';
+
+				const currentSession = sessions.find(s => s.id === currentSessionId);
+
+				if (!currentSession || !currentSession.messages || currentSession.messages.length === 0) {
+					emptyChat.style.display = 'flex';
+					return;
+				}
+
+				emptyChat.style.display = 'none';
+				chatTitle.textContent = currentSession.title || 'AI Assistant';
+
+				for (const message of currentSession.messages) {
+					// Skip system messages if hidden
+					if (message.role === 'system' && settings.hideSystemMessages) {
+						continue;
+					}
+
+					const messageElement = createMessageElement(message);
+					chatMessages.appendChild(messageElement);
+				}
+
+				// Scroll to bottom
+				chatMessages.scrollTop = chatMessages.scrollHeight;
+			}
+
+			/**
+			 * Create a message element
+			 * @param {Object} message Message object
+			 * @returns {HTMLElement} Message element
+			 */
+			function createMessageElement(message) {
+				const messageContainer = document.createElement('div');
+				messageContainer.className = `message-container ${message.role}`;
+
+				let roleLabel = message.role.charAt(0).toUpperCase() + message.role.slice(1);
+
+				// Format message content (add markdown parsing)
+				let formattedContent = formatMessageContent(message.content);
+
+				const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+				let messageClass = `message ${message.role}`;
+				if (message.isError) {
+					messageClass += ' error';
+				}
+
+				messageContainer.innerHTML = `
+					<div class="message-role">${roleLabel}</div>
+					<div class="${messageClass} markdown-content">${formattedContent}</div>
+					<div class="message-timestamp">${timestamp}</div>
+				`;
+
+				// Add message actions if it's not a system message
+				if (message.role !== 'system') {
+					const actionsDiv = document.createElement('div');
+					actionsDiv.className = 'message-actions';
+
+					// Add copy button
+					const copyAction = document.createElement('span');
+					copyAction.className = 'message-action';
+					copyAction.textContent = 'Copy';
+					copyAction.addEventListener('click', () => {
+						copyToClipboard(message.content);
+					});
+
+					actionsDiv.appendChild(copyAction);
+
+					// Add insert button for assistant messages
+					if (message.role === 'assistant') {
+						const insertAction = document.createElement('span');
+						insertAction.className = 'message-action';
+						insertAction.textContent = 'Insert at Cursor';
+						insertAction.addEventListener('click', () => {
+							insertAtCursor(message.content);
+						});
+
+						actionsDiv.appendChild(insertAction);
+					}
+
+					messageContainer.appendChild(actionsDiv);
+				}
+
+				return messageContainer;
+			}
+
+			/**
+			 * Format message content with markdown-like formatting
+			 * @param {string} content Raw message content
+			 * @returns {string} Formatted HTML
+			 */
+			function formatMessageContent(content) {
+				if (!content) {
+					return '';
+				}
+
+				// Replace code blocks with <pre><code>
+				content = content.replace(/```(?:(\w+)\n)?([\s\S]*?)

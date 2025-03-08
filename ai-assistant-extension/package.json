@@ -1,0 +1,107 @@
+{
+  "name": "ai-assistant",
+  "displayName": "AI Assistant",
+  "description": "AI coding assistant for VS Code",
+  "version": "0.1.0",
+  "publisher": "ms-vscode",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiAssistant.explainCode",
+        "title": "AI Assistant: Explain Code"
+      },
+      {
+        "command": "aiAssistant.generateCode",
+        "title": "AI Assistant: Generate Code"
+      },
+      {
+        "command": "aiAssistant.refactorCode",
+        "title": "AI Assistant: Refactor Code"
+      },
+      {
+        "command": "aiAssistant.optimizeCode",
+        "title": "AI Assistant: Optimize Code"
+      },
+      {
+        "command": "aiAssistant.documentCode",
+        "title": "AI Assistant: Document Code"
+      },
+      {
+        "command": "aiAssistant.selectProvider",
+        "title": "AI Assistant: Select Provider"
+      }
+    ],
+    "configuration": {
+      "title": "AI Assistant",
+      "properties": {
+        "ai-assistant.providers": {
+          "type": "array",
+          "default": [],
+          "description": "List of enabled AI providers"
+        },
+        "ai-assistant.activeProviderId": {
+          "type": "string",
+          "default": null,
+          "description": "ID of the active AI provider"
+        },
+        "ai-assistant.localLLM.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:1234/v1",
+          "description": "API URL for local LLM service"
+        },
+        "ai-assistant.context.maxDepth": {
+          "type": "number",
+          "default": 2,
+          "description": "Maximum depth for related file context"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package",
+    "deploy": "node ./scripts/deploy-extension.js",
+    "deploy:publish": "node ./scripts/deploy-extension.js --publish",
+    "fix-imports": "node ./scripts/fix_imports.js",
+    "fix-ts-errors": "node ./scripts/ignore-ts-errors.js",
+    "fix-all": "node ./scripts/run-fix-imports.js",
+    "lint": "eslint src --ext ts",
+    "build-simple": "node ./scripts/simple-build.js",
+    "build": "webpack --mode production --devtool hidden-source-map",
+    "check": "node ./scripts/preDeploymentCheck.js"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "glob": "^8.0.3"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.0.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.56.0",
+    "@typescript-eslint/parser": "^5.56.0",
+    "@vscode/test-electron": "^2.3.0",
+    "@vscode/vsce": "^2.19.0",
+    "eslint": "^8.36.0",
+    "mocha": "^10.2.0",
+    "ts-loader": "^9.4.2",
+    "typescript": "^5.0.2",
+    "webpack": "^5.76.3",
+    "webpack-cli": "^5.0.1"
+  }
+}

@@ -1,0 +1,39 @@
+{
+    "compilerOptions": {
+        "module": "commonjs",
+        "target": "ES2020",
+        "lib": [
+            "ES2020"
+        ],
+        "outDir": "out",
+        "sourceMap": true,
+        "rootDir": "src",
+        "strict": false,
+        "noImplicitAny": false,
+        "noImplicitThis": false,
+        "alwaysStrict": false,
+        "skipLibCheck": true,
+        "noEmitOnError": false,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "forceConsistentCasingInFileNames": true,
+        "noErrorTruncation": true,
+        "allowSyntheticDefaultImports": true,
+        "noFallthroughCasesInSwitch": false,
+        "strictNullChecks": false,
+        "noImplicitReturns": false,
+        "declaration": true,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false
+    },
+    "include": [
+        "src"
+    ],
+    "exclude": [
+        "node_modules",
+        ".vscode-test"
+    ],
+    "ts-node": {
+        "transpileOnly": true
+    }
+}

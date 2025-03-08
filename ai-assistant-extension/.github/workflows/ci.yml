@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 16.x
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Lint
+      run: npm run lint
+
+    - name: Compile
+      run: npm run compile
+
+    - name: Run tests
+      run: npm test
+
+    - name: Package extension
+      run: npm run package
+
+    - name: Upload extension VSIX
+      uses: actions/upload-artifact@v3
+      with:
+        name: ai-assistant-extension
+        path: "*.vsix"
+
+  publish:
+    name: Publish
+    needs: build
+    if: success() && github.event_name == 'release'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download extension VSIX
+        uses: actions/download-artifact@v3
+        with:
+          name: ai-assistant-extension
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          npm install -g @vscode/vsce
+          vsce publish --packagePath $(find . -name "*.vsix")
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

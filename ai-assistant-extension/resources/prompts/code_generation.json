@@ -1,0 +1,20 @@
+[
+  {
+    "id": "code-generation",
+    "description": "Generates code based on description and context",
+    "parameters": ["prompt", "language", "existingCode", "context"],
+    "template": "You are an expert software developer.\n\nGenerate {{language}} code based on this request: \"{{prompt}}\"\n\n{{#existingCode}}Extend or modify this existing code:\n\n```{{language}}\n{{existingCode}}\n```\n{{/existingCode}}\n\n{{#context}}Context information:\n{{context}}{{/context}}\n\nYour task is to create high-quality, well-structured and idiomatic {{language}} code that:\n1. Fully implements the requested functionality\n2. Is clean, efficient, and maintainable\n3. Includes appropriate error handling\n4. Has clear and helpful comments\n5. Follows best practices for {{language}}\n\nProvide your response in this format:\n\n```{{language}}\n// GENERATED CODE HERE\n```\n\nEXPLANATION:\n- Brief explanation of how the code works\n- Key design decisions made\n- Any assumptions or limitations"
+  },
+  {
+    "id": "function-generation",
+    "description": "Generates a specific function based on requirements",
+    "parameters": ["functionName", "parameters", "returnType", "description", "language"],
+    "template": "Generate a {{language}} function with these specifications:\n\nFunction name: {{functionName}}\nParameters: {{parameters}}\nReturn type: {{returnType}}\nDescription: {{description}}\n\nPlease create a well-documented function that:\n1. Implements the described functionality\n2. Handles potential errors appropriately\n3. Includes parameter validation\n4. Has complete JSDoc/documentation comments\n\nProvide only the function implementation without additional explanation."
+  },
+  {
+    "id": "class-generation",
+    "description": "Generates a class based on requirements",
+    "parameters": ["className", "properties", "methods", "language", "description"],
+    "template": "Generate a {{language}} class with these specifications:\n\nClass name: {{className}}\nProperties: {{properties}}\nMethods: {{methods}}\nDescription: {{description}}\n\nPlease create a well-structured class that:\n1. Follows object-oriented design principles\n2. Implements proper encapsulation\n3. Has appropriate constructors/initialization\n4. Includes complete documentation\n\nProvide only the class implementation without additional explanation."
+  }
+]

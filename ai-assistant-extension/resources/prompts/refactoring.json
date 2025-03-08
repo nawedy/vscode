@@ -1,0 +1,8 @@
+[
+  {
+    "id": "code-refactoring",
+    "description": "Refactors code to improve quality and maintainability",
+    "parameters": ["code", "language", "goals", "context"],
+    "template": "You are an expert software developer specializing in code refactoring.\n\nRefactor the following {{language}} code according to these goals:\n{{goals}}\n\nCode:\n{{code}}\n\nAdditional Context: {{context}}\n"
+  }
+]

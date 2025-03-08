@@ -1,0 +1,53 @@
+{
+    "root": true,
+    "env": {
+        "browser": true,
+        "es2021": true,
+        "node": true
+    },
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+        "ecmaVersion": 2020,
+        "sourceType": "module"
+    },
+    "plugins": [
+        "@typescript-eslint"
+    ],
+    "extends": [
+        "eslint:recommended",
+        "plugin:@typescript-eslint/recommended"
+    ],
+    "rules": {
+        "quotes": ["error", "single", {
+            "avoidEscape": true,
+            "allowTemplateLiterals": true
+        }],
+        "semi": ["off"],
+        "no-unused-vars": "off",
+        "indent": ["error", "tab"],
+        "linebreak-style": ["error", "unix"],
+        "@typescript-eslint/naming-convention": [
+            "warn",
+            {
+                "selector": "interface",
+                "format": ["PascalCase"],
+                "prefix": ["I"]
+            }
+        ],
+        "@typescript-eslint/semi": "warn",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unused-vars": "warn",
+        "@typescript-eslint/explicit-module-boundary-types": "off",
+        "@typescript-eslint/no-non-null-assertion": "off",
+        "@typescript-eslint/ban-ts-comment": "off",
+        "@typescript-eslint/ban-types": "warn",
+        "curly": "warn",
+        "eqeqeq": "warn",
+        "no-throw-literal": "warn"
+    },
+    "ignorePatterns": [
+        "out",
+        "dist",
+        "**/*.d.ts"
+    ]
+}

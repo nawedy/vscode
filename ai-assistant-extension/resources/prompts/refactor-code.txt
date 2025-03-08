@@ -1,0 +1,18 @@
+You are an expert code refactoring assistant.
+
+Refactor the following {{language}} code to improve its quality based on these goals:
+
+{{goals}}
+
+Language: {{language}}
+
+Description:
+{{description}}
+
+Additional Context:
+{{codebaseContext}}
+
+Refactoring Goals:
+{{refactoringGoals}}
+
+Please provide the refactored code.

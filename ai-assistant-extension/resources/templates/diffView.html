@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Code Diff</title>
+	<style>
+		:root {
+			--container-padding: 20px;
+			--border-radius: 4px;
+		}
+
+		body {
+			padding: 0;
+			margin: 0;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			color: var(--vscode-editor-foreground);
+			background-color: var(--vscode-editor-background);
+		}
+
+		.container {
+			padding: var(--container-padding);
+			max-width: 1200px;
+			margin: 0 auto;
+		}
+
+		header {
+			margin-bottom: 20px;
+		}
+
+		h1 {
+			font-size: 1.8em;
+			margin-bottom: 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		h2 {
+			font-size: 1.5em;
+			margin: 1em 0 0.5em;
+			color: var(--vscode-editor-foreground);
+		}
+
+		.diff-container {
+			display: flex;
+			height: 70vh;
+			border: 1px solid var(--vscode-panel-border);
+			border-radius: var(--border-radius);
+			overflow: hidden;
+			margin-bottom: 20px;
+		}
+
+		.diff-panel {
+			width: 50%;
+			overflow: auto;
+			padding: 0;
+		}
+
+		.diff-panel:first-child {
+			border-right: 1px solid var(--vscode-panel-border);
+		}
+
+		.diff-header {
+			padding: 8px 16px;
+			font-weight: bold;
+			background-color: var(--vscode-panel-background);
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+
+		.diff-content {
+			padding: 0;
+			margin: 0;
+			white-space: pre-wrap;
+			counter-reset: line;
+		}
+
+		.line {
+			padding-left: 4em;
+			position: relative;
+			min-height: 1.2em;
+		}
+
+		.line::before {
+			counter-increment: line;
+			content: counter(line);
+			position: absolute;
+			left: 0;
+			width: 3em;
+			text-align: right;
+			color: var(--vscode-editorLineNumber-foreground);
+			padding-right: 0.5em;
+			border-right: 1px solid var(--vscode-panel-border);
+			user-select: none;
+		}
+
+		.added {
+			background-color: rgba(0, 255, 0, 0.1);
+		}
+
+		.removed {
+			background-color: rgba(255, 0, 0, 0.1);
+		}
+
+		.unchanged {
+			background-color: transparent;
+		}
+
+		.explanation {
+			margin-bottom: 20px;
+			padding: 16px;
+			background-color: var(--vscode-editor-inactiveSelectionBackground);
+			border-radius: var(--border-radius);
+		}
+
+		.button-container {
+			display: flex;
+			gap: 10px;
+			margin-top: 20px;
+		}
+
+		button {
+			background-color: var(--vscode-button-background);
+			color: var(--vscode-button-foreground);
+			border: none;
+			padding: 6px 12px;
+			cursor: pointer;
+			border-radius: var(--border-radius);
+		}
+
+		button:hover {
+			background-color: var(--vscode-button-hoverBackground);
+		}
+
+		.cancel-button {
+			background-color: var(--vscode-button-secondaryBackground);
+			color: var(--vscode-button-secondaryForeground);
+		}
+
+		.cancel-button:hover {
+			background-color: var(--vscode-button-secondaryHoverBackground);
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<header>
+			<h1>{{title}}</h1>
+		</header>
+
+		<div class="explanation">
+			<h2>Changes Explanation</h2>
+			<div id="explanation-text">{{explanation}}</div>
+		</div>
+
+		<div class="diff-container">
+			<div class="diff-panel">
+				<div class="diff-header">Original Code</div>
+				<div class="diff-content" id="original-code">
+					<!-- Original code will be loaded here -->
+				</div>
+			</div>
+			<div class="diff-panel">
+				<div class="diff-header">Modified Code</div>
+				<div class="diff-content" id="new-code">
+					<!-- New code will be loaded here -->
+				</div>
+			</div>
+		</div>
+
+		<div class="button-container">
+			<button id="apply-changes">Apply Changes</button>
+			<button id="cancel-changes" class="cancel-button">Cancel</button>
+		</div>
+	</div>
+
+	<script>
+		(function() {
+			// Get vscode API
+			const vscode = acquireVsCodeApi();
+
+			// Get data from template
+			const originalCode = `{{originalCode}}`;
+			const newCode = `{{newCode}}`;
+			const language = '{{language}}';
+
+			// Format explanation for markdown-like formatting
+			const explanationDiv = document.getElementById('explanation-text');
+			if (explanationDiv) {
+				let content = explanationDiv.innerHTML;
+
+				// Convert headers (## Header)
+				content = content.replace(/## ([^\n]+)/g, '<h3>$1</h3>');
+				content = content.replace(/### ([^\n]+)/g, '<h4>$1</h4>');
+
+				// Convert code blocks (```code
+				content = content.replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>');
+
+				explanationDiv.innerHTML = content;
+			}
+
+			// Load original and new code
+			const originalCodeDiv = document.getElementById('original-code');
+			const newCodeDiv = document.getElementById('new-code');
+
+			if (originalCodeDiv) {
+				originalCodeDiv.innerHTML = formatCode(originalCode, language);
+			}
+
+			if (newCodeDiv) {
+				newCodeDiv.innerHTML = formatCode(newCode, language);
+			}
+
+			// Apply changes button
+			const applyChangesButton = document.getElementById('apply-changes');
+			if (applyChangesButton) {
+				applyChangesButton.addEventListener('click', () => {
+					vscode.postMessage({
+						command: 'applyChanges',
+						originalCode: originalCode,
+						newCode: newCode
+					});
+				});
+			}
+
+			// Cancel changes button
+			const cancelChangesButton = document.getElementById('cancel-changes');
+			if (cancelChangesButton) {
+				cancelChangesButton.addEventListener('click', () => {
+					vscode.postMessage({
+						command: 'cancelChanges'
+					});
+				});
+			}
+
+			// Function to format code with line numbers and syntax highlighting
+			function formatCode(code, language) {
+				const lines = code.split('\n');
+				return lines.map((line, index) => {
+					const lineClass = getLineClass(line);
+					return `<div class="line ${lineClass}">${escapeHtml(line)}</div>`;
+				}).join('');
+			}
+
+			// Function to get line class based on diff markers
+			function getLineClass(line) {
+				if (line.startsWith('+')) {
+					return 'added';
+				} else if (line.startsWith('-')) {
+					return 'removed';
+				} else {
+					return 'unchanged';
+				}
+			}
+
+			// Function to escape HTML
+			function escapeHtml(unsafe) {
+				return unsafe.replace(/[&<"']/g, function (m) {
+					switch (m) {
+						case '&':
+							return '&amp;';
+						case '<':
+							return '&lt;';
+						case '>':
+							return '&gt;';
+						case '"':
+							return '&quot;';
+						case "'":
+							return '&#039;';
+						default:
+							return m;
+					}
+				});
+			}
+		})();
+	</script>
+</body>
+</html>

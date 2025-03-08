@@ -1,0 +1,108 @@
+📁 super-coder-ai-extension/
+  📄 .gitignore
+  📄 package.json
+  📄 tsconfig.json
+  📄 webpack.config.js
+  📄 CHANGELOG.md
+  📄 LICENSE
+  📄 README.md
+  📄 .eslintrc.json
+  📁 .vscode/
+    📄 launch.json
+    📄 tasks.json
+    📄 settings.json
+  📁 src/
+    📄 extension.ts                  # Main extension entry point
+    📁 commands/                     # Command handlers
+      📄 index.ts                    # Command registration
+      📄 contextAwareCommands.ts     # Context-aware code commands
+      📄 securityCommands.ts         # Security analysis commands
+    📁 ai/
+      📄 modelManager.ts             # Core model orchestration
+      📄 promptManager.ts            # Manages prompt templates
+      📄 providerRegistry.ts         # Registry of available providers
+      📁 ensemble/
+        📄 ensembleLLM.ts            # Base ensemble implementation
+        📄 codeGenerationEnsemble.ts # Code generation ensemble
+        📄 securityEnsemble.ts       # Security analysis ensemble
+        📄 refactoringEnsemble.ts    # Refactoring ensemble
+        📄 testingEnsemble.ts        # Test generation ensemble
+      📁 providers/
+        📄 baseProvider.ts           # Base provider interface
+        📄 openaiProvider.ts         # OpenAI integration
+        📄 anthropicProvider.ts      # Anthropic integration
+        📄 localLLMProvider.ts       # Local LLM support
+        📄 huggingfaceProvider.ts    # Huggingface integration
+        📄 mistralProvider.ts        # Mistral integration
+        📄 deepseekProvider.ts       # DeepSeek integration
+        📄 xaiProvider.ts            # XAI integration
+        📄 kimiProvider.ts           # Kimi integration
+      📁 utils/
+        📄 prompts.ts                # Prompt management
+        📄 tokenizer.ts              # Token counting utilities
+    📁 completions/
+      📄 inlineCompletionProvider.ts # VS Code inline completions
+      📄 ghostTextController.ts      # Ghost text UI control
+      📄 inlineRefactorProvider.ts   # Refactoring suggestions
+    📁 context/
+      📄 contextManager.ts           # Context management
+      📄 projectAnalyzer.ts          # Project structure analysis
+      📄 dependencyGraph.ts          # Dependency mapping
+      📄 fileWatcher.ts              # File change monitoring
+      📄 codeUnderstanding.ts        # Code understanding engine
+    📁 security/
+      📄 securityScanner.ts          # Code security scanning
+      📄 vulnerabilityDetector.ts    # Vulnerability detection
+      📄 securityRecommendations.ts  # Security recommendations
+    📁 services/
+      📄 authService.ts              # Authentication
+      📄 telemetryService.ts         # Privacy-focused telemetry
+      📄 configService.ts            # Configuration management
+      📄 contextService.ts           # Context service integration
+      📄 codeGenerationService.ts    # Code generation orchestration
+    📁 ui/
+      📁 panels/
+        📄 suggestionPanel.ts        # Suggestion UI panel
+        📄 statusBar.ts              # Status bar integration
+        📄 securityDashboard.ts      # Security dashboard UI
+      📁 webview/
+        📄 chatInterface.ts          # Chat interface
+        📄 diffEditor.ts             # Diff view for code changes
+        📄 styles.ts                 # Styling utilities
+      📄 viewManager.ts              # UI view coordination
+    📁 utils/
+      📄 logger.ts                   # Privacy-focused logging
+      📄 context.ts                  # Context utilities
+      📄 fileSystem.ts               # File system operations
+      📄 codeFormatter.ts            # Code formatting utilities
+  📁 test/
+    📁 suite/
+      📄 extension.test.ts           # Extension tests
+      📄 contextManager.test.ts      # Context manager tests
+      📄 ensembleLLM.test.ts         # Ensemble tests
+    📄 runTest.ts                    # Test runner
+  📁 resources/
+    📁 prompts/                      # Prompt templates
+      📄 code_generation.json
+      📄 security_analysis.json
+      📄 refactoring.json
+      📄 test_generation.json
+    📁 icons/                        # UI icons
+    📁 schemas/                      # JSON schemas
+    📁 templates/                    # HTML templates
+      📄 codeExplanation.html
+      📄 diffView.html
+      📄 featureImplementation.html
+      📄 generatedCode.html
+      📄 projectExplanation.html
+      📄 providerConfiguration.html
+      📄 securityBestPractices.html
+      📄 securityReport.html
+  📁 docs/
+    📄 usage.md                      # Usage documentation
+    📄 security.md                   # Security features
+    📄 privacy.md                    # Privacy documentation
+    📄 architecture.md               # Architecture overview
+    📁 New_File_Structure/           # Structure documentation
+      📄 structure_diagram
+  📁 models/                         # Local models (git-ignored)
