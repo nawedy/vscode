@@ -21,6 +21,10 @@ const distDir = path.join(rootDir, 'dist');
 
 console.log('Starting AI Assistant Extension build process');
 
+function build() {
+	// Implementation for build
+}
+
 try {
 	// Create output directories if they don't exist
 	if (!fs.existsSync(outDir)) {

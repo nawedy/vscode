@@ -10,6 +10,7 @@ import { ModelManager } from '../modelManager';
 import { Logger } from '../../utils/logger';
 import { ConfigService } from '../../services/configService';
 import { PromptManager } from '../promptManager';
+import { BaseModelProvider, ModelResponse, ModelRequestOptions } from '../providers/baseProvider';
 
 /**
  * Task result from ensemble
@@ -26,6 +27,23 @@ export interface TaskResult<T = any> {
  */
 export type TaskFunction = (params: any) => Promise<TaskResult>;
 
+interface EnsembleResult {
+	responses: ModelResponse[];
+	combinedResponse: ModelResponse;
+	metrics: {
+		totalTokens: number;
+		averageResponseTime: number;
+		successRate: number;
+	};
+}
+
+interface EnsembleOptions extends ModelRequestOptions {
+	minResponses?: number;
+	maxParallel?: number;
+	timeout?: number;
+	votingStrategy?: 'majority' | 'weighted' | 'first';
+}
+
 /**
  * Base class for ensemble LLMs
  */
@@ -36,6 +54,7 @@ export abstract class EnsembleLLM {
 	protected promptManager: PromptManager;
 	protected tasks: Map<string, TaskFunction> = new Map();
 	protected ensembleId: string;
+	private providers: BaseModelProvider[] = [];
 
 	/**
 	 * Create a new ensemble LLM
@@ -191,5 +210,104 @@ export abstract class EnsembleLLM {
 	public dispose(): void {
 		// Clean up resources if needed
 		this.tasks.clear();
+	}
+
+	public addProvider(provider: BaseModelProvider): void {
+		this.providers.push(provider);
+	}
+
+	public async generate(
+		prompt: string,
+		options: EnsembleOptions
+	): Promise<EnsembleResult> {
+		const startTime = Date.now();
+		const responses: ModelResponse[] = [];
+		const errors: Error[] = [];
+
+		// Execute requests in parallel with limits
+		const maxParallel = options.maxParallel || this.providers.length;
+		const batches = this.chunkArray(this.providers, maxParallel);
+
+		for (const batch of batches) {
+			const batchPromises = batch.map(provider =>
+				this.executeWithTimeout(
+					provider.generateCompletion(prompt, options),
+					options.timeout || 30000
+				).catch(error => {
+					errors.push(error);
+					return null;
+				})
+			);
+
+			const batchResults = await Promise.all(batchPromises);
+			responses.push(...batchResults.filter((r): r is ModelResponse => r !== null));
+
+			// Check if we have enough responses
+			if (options.minResponses && responses.length >= options.minResponses) {
+				break;
+			}
+		}
+
+		// Combine responses based on strategy
+		const combinedResponse = this.combineResponses(responses, options.votingStrategy || 'majority');
+
+		return {
+			responses,
+			combinedResponse,
+			metrics: {
+				totalTokens: responses.reduce((sum, r) => sum + (r.totalTokens || 0), 0),
+				averageResponseTime: (Date.now() - startTime) / responses.length,
+				successRate: responses.length / (responses.length + errors.length)
+			}
+		};
+	}
+
+	private async executeWithTimeout<T>(
+		promise: Promise<T>,
+		timeout: number
+	): Promise<T> {
+		return Promise.race([
+			promise,
+			new Promise<T>((_, reject) =>
+				setTimeout(() => reject(new Error('Request timed out')), timeout)
+			)
+		]);
+	}
+
+	private chunkArray<T>(array: T[], size: number): T[][] {
+		const chunks: T[][] = [];
+		for (let i = 0; i < array.length; i += size) {
+			chunks.push(array.slice(i, i + size));
+		}
+		return chunks;
+	}
+
+	private combineResponses(
+		responses: ModelResponse[],
+		strategy: 'majority' | 'weighted' | 'first'
+	): ModelResponse {
+		if (responses.length === 0) {
+			throw new Error('No responses to combine');
+		}
+
+		switch (strategy) {
+			case 'first':
+				return responses[0];
+			case 'weighted':
+				return this.weightedCombine(responses);
+			case 'majority':
+			default:
+				return this.majorityCombine(responses);
+		}
+	}
+
+	private weightedCombine(responses: ModelResponse[]): ModelResponse {
+		// Implementation for weighted combination strategy
+		return responses[0];
+	}
+
+	private majorityCombine(responses: ModelResponse[]): ModelResponse {
+		// Implementation for majority voting strategy
+		return responses[0];
 	}
 }

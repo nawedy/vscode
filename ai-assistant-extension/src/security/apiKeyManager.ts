@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ConfigService } from '../services/configService';
 import { Logger } from '../utils/logger';
+import { ErrorHandler } from '../utils/errorHandler';
 
 /**
  * API key information
@@ -27,6 +28,8 @@ interface ProviderKeyConfig {
 export class ApiKeyManager {
 	private readonly configService: ConfigService;
 	private readonly logger: Logger;
+	private readonly errorHandler: ErrorHandler;
+	private readonly metadataKey = 'apikey-metadata';
 
 	// Mapping of provider IDs to their key configurations
 	private readonly providerKeyConfigs = new Map<string, ProviderKeyConfig>([
@@ -44,10 +47,12 @@ export class ApiKeyManager {
 	 * Create a new ApiKeyManager
 	 * @param configService The configuration service
 	 * @param logger The logger
+	 * @param errorHandler The error handler
 	 */
-	constructor(configService: ConfigService, logger: Logger) {
+	constructor(configService: ConfigService, logger: Logger, errorHandler: ErrorHandler) {
 		this.configService = configService;
 		this.logger = logger;
+		this.errorHandler = errorHandler;
 	}
 
 	/**
@@ -63,9 +68,14 @@ export class ApiKeyManager {
 		}
 
 		try {
-			return await this.configService.getSecret(config.secretKey);
+			const key = await this.configService.getSecret(config.secretKey);
+			if (key) {
+				// Update last used timestamp
+				await this.updateLastUsed(providerId);
+			}
+			return key;
 		} catch (error) {
-			this.logger.error(`Error retrieving API key for ${providerId}: ${error instanceof Error ? error.message : String(error)}`);
+			this.errorHandler.handleError(error, `Failed to retrieve API key for ${providerId}`);
 			return undefined;
 		}
 	}
@@ -93,9 +103,18 @@ export class ApiKeyManager {
 			// Store the key
 			await this.configService.setSecret(config.secretKey, apiKey);
 			this.logger.info(`API key saved for provider: ${providerId}`);
+
+			// Store metadata
+			const metadata: APIKeyMetadata = {
+				providerId,
+				createdAt: Date.now(),
+				isValid: true
+			};
+			await this.storeMetadata(providerId, metadata);
+
 			return true;
 		} catch (error) {
-			this.logger.error(`Error saving API key for ${providerId}: ${error instanceof Error ? error.message : String(error)}`);
+			this.errorHandler.handleError(error, `Failed to store API key for ${providerId}`);
 			return false;
 		}
 	}
@@ -269,5 +288,23 @@ export class ApiKeyManager {
 
 		// Save the new key
 		return await this.saveApiKey(providerId, newKey);
+	}
+
+	private async storeMetadata(providerId: string, metadata: APIKeyMetadata): Promise<void> {
+		const allMetadata = await this.getAllMetadata();
+		allMetadata[providerId] = metadata;
+		await this.configService.storeState(this.metadataKey, allMetadata);
+	}
+
+	private async getAllMetadata(): Promise<Record<string, APIKeyMetadata>> {
+		return this.configService.getState(this.metadataKey, {});
+	}
+
+	private async updateLastUsed(providerId: string): Promise<void> {
+		const allMetadata = await this.getAllMetadata();
+		if (allMetadata[providerId]) {
+			allMetadata[providerId].lastUsed = Date.now();
+			await this.configService.storeState(this.metadataKey, allMetadata);
+		}
 	}
 }

@@ -116,3 +116,11 @@ suite('AIResponsePanel Test Suite', () => {
 		);
 	});
 });
+
+describe('Person', () => {
+	it('should return the correct age', () => {
+		const person = new Person();
+		person.age = 30;
+		expect(person.getAge()).toBe(30);
+	});
+});

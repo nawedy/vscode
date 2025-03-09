@@ -1,3 +1,5 @@
+import { Logger } from '../../utils/logger';
+
 // Simple tokenizer implementation to avoid external dependency
 
 /**
@@ -63,4 +65,41 @@ export function truncateToTokenLimit(text: string, limit: number): string {
     // Approximate character position based on token ratio
     const approxCharPosition = Math.floor((limit / tokens.length) * text.length);
     return text.slice(0, approxCharPosition) + '...';
+}
+
+export interface TokenizationResult {
+	tokens: number;
+	text: string;
+}
+
+export interface TokenizerOptions {
+	preserveWhitespace?: boolean;
+	maxTokens?: number;
+}
+
+export class Tokenizer {
+	constructor(private readonly logger: Logger) {}
+
+	public tokenize(text: string, options: TokenizerOptions = {}): TokenizationResult {
+		// Simple tokenization based on characters/spaces
+		// In practice, you'd want to use a proper tokenizer like GPT tokenizer
+		const tokens = Math.ceil(text.length / 4); // Rough approximation
+
+		if (options.maxTokens && tokens > options.maxTokens) {
+			const truncatedText = text.slice(0, options.maxTokens * 4);
+			return {
+				tokens: options.maxTokens,
+				text: truncatedText
+			};
+		}
+
+		return {
+			tokens,
+			text
+		};
+	}
+
+	public estimateTokens(text: string): number {
+		return Math.ceil(text.length / 4);
+	}
 }

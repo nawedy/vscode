@@ -40,6 +40,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Telemetry service for usage analytics.
 - Configuration service for customizable user settings.
 - UI components for displaying AI suggestions and chat interface.
+- Added `getAge` method to `Person` class.
 
 ### Changed
 

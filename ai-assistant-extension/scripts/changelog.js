@@ -72,3 +72,7 @@ if (sectionPos === -1) {
 // Write back to file
 fs.writeFileSync(changelogPath, changelog);
 console.log(`Added "${description}" to ${section} section in CHANGELOG.md`);
+
+function updateChangelog() {
+	// Implementation for updating changelog
+}

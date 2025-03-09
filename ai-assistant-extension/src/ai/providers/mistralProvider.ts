@@ -1,8 +1,8 @@
 /**
  * Mistral Provider
  *
- * Provider implementation for Mistral AI models.
- * Supports Mixtral and Mistral models for code generation, chat, and other capabilities.
+ * Provider implementation for Mistral AI API integration.
+ * Supports Mistral's large language models for various AI capabilities.
  */
 
 import * as vscode from 'vscode';
@@ -12,23 +12,30 @@ import { ConfigService } from '../../services/configService';
 import { Logger } from '../../utils/logger';
 
 /**
- * Mistral API response types
+ * Mistral API message format
  */
 interface MistralMessage {
-	role: 'user' | 'assistant' | 'system';
+	role: 'system' | 'user' | 'assistant';
 	content: string;
 }
 
+/**
+ * Mistral completion request parameters
+ */
 interface MistralCompletionRequest {
 	model: string;
 	messages: MistralMessage[];
 	temperature?: number;
-	max_tokens?: number;
 	top_p?: number;
+	max_tokens?: number;
 	stream?: boolean;
 	safe_prompt?: boolean;
+	random_seed?: number;
 }
 
+/**
+ * Mistral API response format
+ */
 interface MistralCompletionResponse {
 	id: string;
 	object: string;
@@ -36,10 +43,7 @@ interface MistralCompletionResponse {
 	model: string;
 	choices: {
 		index: number;
-		message: {
-			role: string;
-			content: string;
-		};
+		message: MistralMessage;
 		finish_reason: string;
 	}[];
 	usage: {
@@ -49,6 +53,9 @@ interface MistralCompletionResponse {
 	};
 }
 
+/**
+ * Mistral stream chunk format
+ */
 interface MistralStreamChunk {
 	id: string;
 	object: string;
@@ -65,21 +72,13 @@ interface MistralStreamChunk {
 }
 
 /**
- * Provider for Mistral AI models
-// @ts-ignore: error TS2415: Class 'MistralProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'MistralProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'MistralProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'MistralProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'MistralProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'MistralProvider' incorrectly extends base class 'BaseModelProvider'.
+ * Provider for Mistral models
  */
 export class MistralProvider extends BaseModelProvider {
 	private readonly configService: ConfigService;
-	private readonly logger: Logger;
 	private apiKey: string = '';
+	private client: AxiosInstance | null = null;
 	private baseUrl: string = 'https://api.mistral.ai/v1';
-	private client: AxiosInstance;
-	private defaultModel: string = 'mistral-large-latest';
 
 	/**
 	 * Create a new Mistral provider
@@ -87,21 +86,8 @@ export class MistralProvider extends BaseModelProvider {
 	 * @param logger Logger instance
 	 */
 	constructor(configService: ConfigService, logger: Logger) {
-		super('mistral', 'Mistral AI');
+		super('mistral', 'Mistral AI', configService, logger);
 		this.configService = configService;
-		this.logger = logger;
-
-		// Create HTTP client
-		this.client = axios.create({
-			baseURL: this.baseUrl,
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			timeout: 60000
-		});
-
-		// Initialize models
-		this.initializeModels();
 	}
 
 	/**
@@ -110,16 +96,9 @@ export class MistralProvider extends BaseModelProvider {
 	 */
 	public async initialize(): Promise<boolean> {
 		try {
-			this.logger.info('Initializing Mistral Provider');
+			this.logger.info('Initializing Mistral provider');
 
-			// Get configuration from settings
-			this.baseUrl = this.configService.get<string>('providers.mistral.baseUrl', 'https://api.mistral.ai/v1');
-			this.defaultModel = this.configService.get<string>('providers.mistral.defaultModel', 'mistral-large-latest');
-
-			// Update client base URL
-			this.client.defaults.baseURL = this.baseUrl;
-
-			// Get API key from secret storage
+			// Get API key from secure storage
 			this.apiKey = await this.configService.getSecret('mistral.apiKey') || '';
 
 			if (!this.apiKey) {
@@ -127,100 +106,143 @@ export class MistralProvider extends BaseModelProvider {
 				return false;
 			}
 
-			// Set the API key header
-			this.client.defaults.headers.common['Authorization'] = `Bearer ${this.apiKey}`;
+			// Get base URL (configurable)
+			this.baseUrl = this.configService.get<string>(
+				'providers.mistral.baseUrl',
+				'https://api.mistral.ai/v1'
+			);
 
-			// Test connection
-			const isAvailable = await this.testConnection();
-			if (!isAvailable) {
-				this.logger.warn('Mistral provider test connection failed');
-				return false;
-			}
+			// Initialize API client
+			this.client = axios.create({
+				baseURL: this.baseUrl,
+				headers: {
+					'Authorization': `Bearer ${this.apiKey}`,
+					'Content-Type': 'application/json'
+				},
+				timeout: 60000
+			});
+
+			// Load available models
+			await this.loadModels();
 
 			this._isReady = true;
-			this.logger.info('Mistral Provider initialized successfully');
+			this.logger.info('Mistral provider initialized successfully');
 			return true;
 		} catch (error) {
-			this.logger.error(`Failed to initialize Mistral Provider: ${error instanceof Error ? error.message : String(error)}`);
+			this.logger.error(`Failed to initialize Mistral provider: ${error instanceof Error ? error.message : String(error)}`);
 			return false;
 		}
 	}
 
 	/**
-	 * Initialize available models
+	 * Load available models
 	 */
-	private initializeModels(): void {
-		// Mistral Large
-		this.models.set('mistral-large-latest', {
-			id: 'mistral-large-latest',
-			name: 'Mistral Large (Latest)',
-			contextLength: 32768,
-			capabilities: [
-				ModelCapability.ChatCompletion,
-				ModelCapability.CodeCompletion,
-				ModelCapability.CodeGeneration,
-				ModelCapability.Explanation,
-				ModelCapability.Refactoring,
-				ModelCapability.Planning
-			],
-			available: true
-		});
-
-		// Mixtral 8x7B
-		this.models.set('mixtral-8x7b-instruct', {
-			id: 'mixtral-8x7b-instruct',
-			name: 'Mixtral 8x7B Instruct',
-			contextLength: 32768,
-			capabilities: [
-				ModelCapability.ChatCompletion,
-				ModelCapability.CodeCompletion,
-				ModelCapability.CodeGeneration,
-				ModelCapability.Explanation,
-				ModelCapability.Refactoring
-			],
-			available: true
-		});
-
-		// Mistral Medium
-		this.models.set('mistral-medium-latest', {
-			id: 'mistral-medium-latest',
-			name: 'Mistral Medium (Latest)',
-			contextLength: 32768,
-			capabilities: [
-				ModelCapability.ChatCompletion,
-				ModelCapability.CodeCompletion,
-				ModelCapability.CodeGeneration,
-				ModelCapability.Explanation
-			],
-			available: true
-		});
-
-		// Mistral Small
-		this.models.set('mistral-small-latest', {
-			id: 'mistral-small-latest',
-			name: 'Mistral Small (Latest)',
-			contextLength: 32000,
-			capabilities: [
-				ModelCapability.ChatCompletion,
-				ModelCapability.CodeCompletion,
-				ModelCapability.Explanation
-			],
-			available: true
-		});
-	}
-
-	/**
-	 * Test connection to Mistral API
-	 * @returns Whether connection is successful
-	 */
-	private async testConnection(): Promise<boolean> {
+	private async loadModels(): Promise<void> {
 		try {
-			// Simple test request to verify API key works
-			await this.client.get('/models');
-			return true;
+			// Define standard Mistral models
+			const standardModels: ModelInfo[] = [
+				{
+					id: 'mistral-large-latest',
+					name: 'Mistral Large',
+					contextLength: 32768,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeGeneration,
+						ModelCapability.CodeCompletion,
+						ModelCapability.Refactoring,
+						ModelCapability.Explanation,
+						ModelCapability.Planning
+					],
+					available: true
+				},
+				{
+					id: 'mistral-medium-latest',
+					name: 'Mistral Medium',
+					contextLength: 32768,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeGeneration,
+						ModelCapability.CodeCompletion,
+						ModelCapability.Explanation
+					],
+					available: true
+				},
+				{
+					id: 'mistral-small-latest',
+					name: 'Mistral Small',
+					contextLength: 32768,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeCompletion,
+						ModelCapability.Explanation
+					],
+					available: true
+				},
+				{
+					id: 'open-mistral-7b',
+					name: 'Open Mistral 7B',
+					contextLength: 8192,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeCompletion,
+						ModelCapability.Explanation
+					],
+					available: true
+				},
+				{
+					id: 'open-mixtral-8x7b',
+					name: 'Open Mixtral 8x7B',
+					contextLength: 32768,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeCompletion,
+						ModelCapability.Explanation,
+						ModelCapability.CodeGeneration
+					],
+					available: true
+				}
+			];
+
+			// Add models to map
+			standardModels.forEach(model => {
+				this.models.set(model.id, model);
+			});
+
+			// If client is available, try to get additional models from API
+			if (this.client) {
+				try {
+					const response = await this.client.get('/models');
+					const apiModels = response.data.data || [];
+
+					for (const model of apiModels) {
+						// Skip if we already have this model
+						if (this.models.has(model.id)) {
+							continue;
+						}
+
+						// Only add Mistral models
+						if (model.id.includes('mistral') || model.id.includes('mixtral')) {
+							const capabilities = this.inferModelCapabilities(model.id);
+							const contextLength = this.getContextLengthForModel(model.id);
+
+							this.models.set(model.id, {
+								id: model.id,
+								name: model.id,
+								contextLength,
+								capabilities,
+								available: true
+							});
+						}
+					}
+				} catch (error) {
+					// Non-fatal error, we already have standard models
+					this.logger.warn(`Failed to get models from Mistral API: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			}
+
+			this.logger.info(`Loaded ${this.models.size} Mistral models`);
 		} catch (error) {
-			this.logger.error(`Mistral connection test failed: ${error instanceof Error ? error.message : String(error)}`);
-			return false;
+			throw new Error(`Failed to load Mistral models: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
@@ -231,11 +253,10 @@ export class MistralProvider extends BaseModelProvider {
 	 * @returns Model response
 	 */
 	public async generateCompletion(prompt: string, options?: ModelRequestOptions): Promise<ModelResponse> {
-		if (!this._isReady) {
+		if (!this.isReady || !this.client) {
 			throw new ModelProviderError('Mistral provider not initialized', this.id);
 		}
 
-		// Get model ID from options or default
 		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(ModelCapability.ChatCompletion);
 
 		if (!modelId) {
@@ -243,10 +264,10 @@ export class MistralProvider extends BaseModelProvider {
 		}
 
 		try {
-			// Create messages array
+			// Prepare messages
 			const messages: MistralMessage[] = [];
 
-			// Add system message if provided
+			// Add system prompt if provided
 			if (options?.systemPrompt) {
 				messages.push({
 					role: 'system',
@@ -254,43 +275,46 @@ export class MistralProvider extends BaseModelProvider {
 				});
 			}
 
-			// Add user message (the prompt)
+			// Add user prompt
 			messages.push({
 				role: 'user',
 				content: prompt
 			});
 
-			// Prepare request body
-			const requestBody: MistralCompletionRequest = {
+			// Prepare request
+			const request: MistralCompletionRequest = {
 				model: modelId,
 				messages,
 				temperature: options?.temperature ?? 0.7,
-				max_tokens: options?.maxTokens ?? 2048,
-				top_p: options?.topP ?? 1
+				top_p: options?.topP ?? 1,
+				max_tokens: options?.maxTokens,
+				stream: false
 			};
 
-			// Make request
-			const response = await this.client.post<MistralCompletionResponse>('/chat/completions', requestBody);
-
-			// Extract content from the first choice
+			const response = await this.client.post<MistralCompletionResponse>('/chat/completions', request);
 			const content = response.data.choices[0]?.message?.content || '';
 
 			return {
 				content,
-				promptTokens: response.data.usage.prompt_tokens,
-				completionTokens: response.data.usage.completion_tokens,
-				totalTokens: response.data.usage.total_tokens,
+				promptTokens: response.data.usage?.prompt_tokens || 0,
+				completionTokens: response.data.usage?.completion_tokens || 0,
+				totalTokens: response.data.usage?.total_tokens || 0,
 				metadata: {
-					model: response.data.model,
-					provider: 'mistral'
+					model: modelId,
+					finishReason: response.data.choices[0]?.finish_reason || 'stop'
 				}
 			};
 		} catch (error) {
-			throw new ModelProviderError(
-				`Mistral request failed: ${error instanceof Error ? error.message : String(error)}`,
-				this.id,
-				modelId
-			);
+			if (axios.isAxiosError(error) && error.response?.data) {
+				const responseData = error.response.data as { error?: { message?: string } };
+				throw new ModelProviderError(
+					`Mistral request failed: ${responseData.error?.message || error.message}`,
+					this.id,
+					modelId,
+					String(error.response?.status || 'NETWORK_ERROR')
+				);
+			}
+			throw new ModelProviderError(`Mistral request failed: ${error instanceof Error ? error.message : String(error)}`, this.id, modelId);
 		}
 	}
 
@@ -305,22 +329,21 @@ export class MistralProvider extends BaseModelProvider {
 		handler: StreamingResponseHandler,
 		options?: ModelRequestOptions
 	): Promise<void> {
-		if (!this._isReady) {
+		if (!this.isReady || !this.client) {
 			throw new ModelProviderError('Mistral provider not initialized', this.id);
 		}
 
-		// Get model ID from options or default
 		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(ModelCapability.ChatCompletion);
 
 		if (!modelId) {
-			throw new ModelProviderError('No suitable model found for completion', this.id);
+			throw new ModelProviderError('No suitable model found for streaming', this.id);
 		}
 
 		try {
-			// Create messages array
+			// Prepare messages
 			const messages: MistralMessage[] = [];
 
-			// Add system message if provided
+			// Add system prompt if provided
 			if (options?.systemPrompt) {
 				messages.push({
 					role: 'system',
@@ -328,62 +351,72 @@ export class MistralProvider extends BaseModelProvider {
 				});
 			}
 
-			// Add user message (the prompt)
+			// Add user prompt
 			messages.push({
 				role: 'user',
 				content: prompt
 			});
 
-			// Prepare request body
-			const requestBody: MistralCompletionRequest = {
+			// Prepare request
+			const request: MistralCompletionRequest = {
 				model: modelId,
 				messages,
 				temperature: options?.temperature ?? 0.7,
-				max_tokens: options?.maxTokens ?? 2048,
 				top_p: options?.topP ?? 1,
+				max_tokens: options?.maxTokens,
 				stream: true
 			};
 
-			// Make streaming request
-			const response = await this.client.post('/chat/completions', requestBody, {
+			const response = await this.client.post('/chat/completions', request, {
 				responseType: 'stream'
 			});
 
-			// Process the response stream
-			const stream = response.data;
 			let accumulatedContent = '';
+			let finishReason = '';
 			let promptTokens = 0;
 			let completionTokens = 0;
 
-			// Read event stream
-			stream.on('data', (chunk: Buffer) => {
-				const lines = chunk.toString().split('\n');
+			response.data.on('data', (chunk: Buffer) => {
+				try {
+					const lines = chunk.toString().split('\n');
 
-				for (const line of lines) {
-					if (line.startsWith('data: ')) {
-						const data = line.substring(6);
-
-						if (data === '[DONE]') {
+					for (const line of lines) {
+						if (!line.trim() || line.trim() === 'data: [DONE]') {
 							continue;
 						}
 
-						try {
-							const parsed = JSON.parse(data) as MistralStreamChunk;
+						const dataMatch = line.match(/^data: (.+)$/);
+						if (!dataMatch) {
+							continue;
+						}
 
-							if (parsed.choices && parsed.choices[0]?.delta?.content) {
-								const content = parsed.choices[0].delta.content;
-								accumulatedContent += content;
-								handler.onContent(content);
-							}
-						} catch (e) {
-							this.logger.warn(`Error parsing stream chunk: ${e instanceof Error ? e.message : String(e)}`);
+						const data = JSON.parse(dataMatch[1]) as MistralStreamChunk;
+						const content = data.choices[0]?.delta?.content || '';
+
+						if (content) {
+							accumulatedContent += content;
+							handler.onContent(content);
+						}
+
+						if (data.choices[0]?.finish_reason) {
+							finishReason = data.choices[0].finish_reason;
 						}
 					}
+				} catch (error) {
+					// If we can't parse, ignore this chunk
+					this.logger.debug(`Failed to parse streaming chunk: ${error instanceof Error ? error.message : String(error)}`);
 				}
 			});
 
-			// Handle end of stream
-			stream.on('end', () => {
+			response.data.on('error', (error: Error) => {
+				handler.onError(new ModelProviderError(`Stream error: ${error.message}`, this.id, modelId));
+			});
+
+			response.data.on('end', () => {
+				// Estimate token counts (since they're not provided by the API in streaming mode)
+				promptTokens = this.estimateTokenCount(prompt);
+				completionTokens = this.estimateTokenCount(accumulatedContent);
+
 				handler.onComplete({
 					content: accumulatedContent,
 					promptTokens,
@@ -391,25 +424,30 @@ export class MistralProvider extends BaseModelProvider {
 					totalTokens: promptTokens + completionTokens,
 					metadata: {
 						model: modelId,
-						provider: 'mistral'
+						finishReason: finishReason || 'stop'
 					}
 				});
 			});
-
-			// Handle errors
-			stream.on('error', (err: Error) => {
-				handler.onError(
-					new ModelProviderError(`Mistral stream error: ${err.message}`, this.id, modelId)
-				);
-			});
 		} catch (error) {
-			handler.onError(
-				new ModelProviderError(
-					`Mistral streaming request failed: ${error instanceof Error ? error.message : String(error)}`,
-					this.id,
-					modelId
-				)
-			);
+			if (axios.isAxiosError(error) && error.response?.data) {
+				const responseData = error.response.data as { error?: { message?: string } };
+				handler.onError(
+					new ModelProviderError(
+						`Mistral streaming failed: ${responseData.error?.message || error.message}`,
+						this.id,
+						modelId,
+						String(error.response?.status || 'NETWORK_ERROR')
+					)
+				);
+			} else {
+				handler.onError(
+					new ModelProviderError(
+						`Mistral streaming failed: ${error instanceof Error ? error.message : String(error)}`,
+						this.id,
+						modelId
+					)
+				);
+			}
 		}
 	}
 
@@ -419,9 +457,74 @@ export class MistralProvider extends BaseModelProvider {
 	 * @returns Token count
 	 */
 	public async countTokens(text: string): Promise<number> {
-		// Mistral doesn't provide a token counting endpoint
-		// This is a rough approximation - not accurate
-		return Math.ceil(text.length / 3);
+		return this.estimateTokenCount(text);
+	}
+
+	/**
+	 * Estimate token count based on text length
+	 * @param text Text to estimate tokens for
+	 * @returns Estimated token count
+	 */
+	private estimateTokenCount(text: string): number {
+		// For English text, roughly 4 characters per token
+		return Math.ceil(text.length / 4);
+	}
+
+	/**
+	 * Infer model capabilities from model ID
+	 * @param modelId Model ID
+	 * @returns Array of capabilities
+	 */
+	private inferModelCapabilities(modelId: string): ModelCapability[] {
+		const capabilities = new Set<ModelCapability>();
+		const lowerModelId = modelId.toLowerCase();
+
+		// All Mistral models support chat completion
+		capabilities.add(ModelCapability.ChatCompletion);
+		capabilities.add(ModelCapability.Explanation);
+
+		if (lowerModelId.includes('large')) {
+			// Large models have additional capabilities
+			capabilities.add(ModelCapability.CodeGeneration);
+			capabilities.add(ModelCapability.CodeCompletion);
+			capabilities.add(ModelCapability.Refactoring);
+			capabilities.add(ModelCapability.Planning);
+		} else if (lowerModelId.includes('medium')) {
+			// Medium models
+			capabilities.add(ModelCapability.CodeGeneration);
+			capabilities.add(ModelCapability.CodeCompletion);
+		} else {
+			// Small/base models have basic capabilities
+			capabilities.add(ModelCapability.CodeCompletion);
+		}
+
+		// Mixtral models have good code capabilities
+		if (lowerModelId.includes('mixtral')) {
+			capabilities.add(ModelCapability.CodeGeneration);
+			capabilities.add(ModelCapability.CodeCompletion);
+		}
+
+		return Array.from(capabilities);
+	}
+
+	/**
+	 * Get context length for a model
+	 * @param modelId Model ID
+	 * @returns Context length
+	 */
+	private getContextLengthForModel(modelId: string): number {
+		const lowerModelId = modelId.toLowerCase();
+
+		if (lowerModelId.includes('large') ||
+			lowerModelId.includes('medium') ||
+			lowerModelId.includes('mixtral-8x7b')) {
+			return 32768;
+		} else if (lowerModelId.includes('small')) {
+			return 16384;
+		} else {
+			// Default for other models (like open-mistral-7b)
+			return 8192;
+		}
 	}
 
 	/**
@@ -439,21 +542,36 @@ export class MistralProvider extends BaseModelProvider {
 	 * @returns Model ID or null if no suitable model found
 	 */
 	public async getDefaultModelForCapability(capability: ModelCapability): Promise<string | null> {
-		// Use configured default model if it supports the capability
-		const defaultModel = this.models.get(this.defaultModel);
+		// Check for configured preferred model first
+		const preferredModel = this.configService.get<string>('providers.mistral.preferredModel', '');
 
-		if (defaultModel && defaultModel.capabilities.includes(capability)) {
-			return defaultModel.id;
-		}
-
-		// Otherwise find a suitable model based on capability
-		for (const [id, model] of this.models.entries()) {
-			if (model.capabilities.includes(capability)) {
-				return id;
+		if (preferredModel) {
+			const model = this.models.get(preferredModel);
+			if (model && model.capabilities.includes(capability)) {
+				return model.id;
 			}
 		}
 
-		return null;
+		// Match based on capability
+		switch (capability) {
+			case ModelCapability.CodeGeneration:
+			case ModelCapability.Refactoring:
+			case ModelCapability.Planning:
+				// For advanced capabilities, prefer Large model
+				return 'mistral-large-latest';
+
+			case ModelCapability.CodeCompletion:
+				// For code completion, Medium is a good balance
+				return 'mistral-medium-latest';
+
+			default:
+				// For basic capabilities, start with Small
+				const models = Array.from(this.models.values())
+					.filter(model => model.capabilities.includes(capability))
+					.sort((a, b) => b.contextLength - a.contextLength);
+
+				return models.length > 0 ? models[0].id : null;
+		}
 	}
 
 	/**
@@ -461,6 +579,6 @@ export class MistralProvider extends BaseModelProvider {
 	 */
 	public dispose(): void {
 		this._isReady = false;
-		this.models.clear();
+		this.client = null;
 	}
 }

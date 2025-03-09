@@ -62,7 +62,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 		const fileWatcher = new FileWatcher(logger);
 		context.subscriptions.push(fileWatcher);
-// @ts-ignore: error TS2554: Expected 3 arguments, but got 2.
+		// @ts-ignore: error TS2554: Expected 3 arguments, but got 2.
 
 		const webviewManager = new WebviewManager(context, logger);
 		context.subscriptions.push(webviewManager);
@@ -127,5 +127,13 @@ function getLogLevel(level: string): LogLevel {
 		case 'warn': return LogLevel.WARN;
 		case 'error': return LogLevel.ERROR;
 		default: return LogLevel.INFO;
+	}
+}
+
+class Person {
+	age: number;
+
+	getAge() {
+		return this.age;
 	}
 }

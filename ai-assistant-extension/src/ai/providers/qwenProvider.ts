@@ -491,4 +491,8 @@ export class QwenProvider extends BaseModelProvider {
 		this._isReady = false;
 		this.logger.debug('Qwen provider disposed');
 	}
+
+	getQwenInfo() {
+		// Implementation for getting Qwen info
+	}
 }

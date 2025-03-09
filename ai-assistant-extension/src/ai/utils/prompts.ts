@@ -155,3 +155,9 @@ export class PromptUtils {
         };
     }
 }
+
+class Prompts {
+    generatePrompt(template: string, data: any) {
+        // Implementation for generating prompt
+    }
+}

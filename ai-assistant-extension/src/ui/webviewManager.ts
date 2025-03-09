@@ -56,7 +56,7 @@ export class WebviewManager implements vscode.Disposable {
 	/**
 	 * Create or show a webview panel
 	 * @param id Panel identifier
-	 * @param options Webview options
+	 * @param options WebviewOptions
 	 * @param htmlContent HTML content for the webview
 	 * @param messageHandler Message handler function
 	 * @returns Webview panel
@@ -498,5 +498,33 @@ export class WebviewManager implements vscode.Disposable {
 	</script>
 </body>
 </html>`;
+	}
+
+	public createWebviewPanel(options: WebviewOptions): vscode.WebviewPanel {
+		const panel = vscode.window.createWebviewPanel(
+			options.viewType,
+			options.title,
+			vscode.ViewColumn.Beside,
+			{
+				enableScripts: true,
+				retainContextWhenHidden: options.retainContextWhenHidden ?? false,
+				localResourceRoots: [
+					vscode.Uri.file(path.join(this.context.extensionPath, 'media')),
+					vscode.Uri.file(path.join(this.context.extensionPath, 'out'))
+				]
+			}
+		);
+
+		return panel;
+	}
+
+	public getAsWebviewUri(panel: vscode.WebviewPanel, ...pathSegments: string[]): vscode.Uri {
+		return panel.webview.asWebviewUri(
+			vscode.Uri.file(path.join(this.context.extensionPath, ...pathSegments))
+		);
+	}
+
+	public setWebviewContent(panel: vscode.WebviewPanel, content: string): void {
+		panel.webview.html = content;
 	}
 }

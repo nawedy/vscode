@@ -19,7 +19,15 @@ export enum ModelCapability {
 	Embedding = 'embedding',
 	ImageGeneration = 'image-generation',
 	Summarization = 'summarization',
-	EditingAssistance = 'editing-assistance'
+	EditingAssistance = 'editing-assistance',
+	TextCompletion = 'textCompletion'
+}
+
+interface BaseModelOptions {
+	modelId: string;
+	temperature?: number;
+	maxTokens?: number;
+	[key: string]: unknown;
 }
 
 /**
@@ -33,7 +41,7 @@ export interface ModelInfo {
 	/** Context length in tokens */
 	contextLength: number;
 	/** Supported capabilities */
-	capabilities: ModelCapability[];
+	capabilities: Set<ModelCapability>;
 	/** Whether the model is available */
 	available: boolean;
 	/** Additional model parameters */
@@ -131,13 +139,31 @@ export interface ChatMessage {
  * Completion options
  */
 export interface CompletionOptions {
-	model: string;
-	prompt: string;
-	maxTokens?: number;
+	capability: ModelCapability;
 	temperature?: number;
-	topP?: number;
+	maxTokens?: number;
 	stopSequences?: string[];
-	systemPrompt?: string;
+	modelParams?: Record<string, unknown>;
+}
+
+/**
+ * Completion response
+ */
+export interface CompletionResponse {
+	content: string;
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+	metadata?: Record<string, unknown>;
+}
+
+/**
+ * Streaming response
+ */
+export interface StreamingResponse {
+	content: string;
+	isDone: boolean;
+	metadata?: Record<string, unknown>;
 }
 
 /**
@@ -275,4 +301,24 @@ export abstract class BaseModelProvider implements vscode.Disposable {
 	 * Dispose of resources
 	 */
 	public abstract dispose(): void;
+
+	/**
+	 * Get base information
+	 */
+	public getBaseInfo() {
+		// Implementation for getting base info
+	}
+}
+
+/**
+ * Base provider class
+ */
+export abstract class BaseProvider {
+	abstract get id(): string;
+	abstract get name(): string;
+	abstract get isReady(): boolean;
+	abstract getModels(): Map<string, ModelInfo>;
+	abstract initialize(): Promise<void>;
+	abstract generateCompletion(prompt: string, options: CompletionOptions): Promise<CompletionResponse>;
+	abstract generateCompletionStream(prompt: string, options: CompletionOptions): AsyncGenerator<StreamingResponse>;
 }

@@ -54,3 +54,9 @@ deploy().catch(error => {
 	console.error(`Fatal deployment error: ${error instanceof Error ? error.message : String(error)}`);
 	process.exit(1);
 });
+
+class Deploy {
+	runDeployment() {
+		// Implementation for running deployment
+	}
+}

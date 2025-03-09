@@ -1,40 +1,21 @@
 /**
  * Local LLM Provider
  *
- * Provider implementation for locally-hosted language models through LM Studio, Ollama, or similar services.
+ * Provider implementation for running local language models.
+ * Supports local inference via various backends (ollama, llama.cpp, etc).
  */
 
 import * as vscode from 'vscode';
-import axios, { AxiosError, AxiosInstance } from 'axios';
-import {
-	BaseModelProvider,
-	ModelCapability,
-	ModelInfo,
-	ModelRequestOptions,
-	ModelResponse,
-	ModelProviderError,
-	StreamingResponseHandler
-} from './baseProvider';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
+import axios, { AxiosInstance } from 'axios';
+import { BaseModelProvider, ModelCapability, ModelInfo, ModelProviderError, ModelRequestOptions, ModelResponse, StreamingResponseHandler } from './baseProvider';
 import { ConfigService } from '../../services/configService';
 import { Logger } from '../../utils/logger';
-import { debounce } from '../../utils/debounce';
 
 /**
- * Interface for local LLM request
- */
-interface LocalLLMRequest {
-	model: string;
-	prompt?: string;
-	messages?: LocalLLMMessage[];
-	temperature?: number;
-	top_p?: number;
-	max_tokens?: number;
-	stop?: string[];
-	stream?: boolean;
-}
-
-/**
- * Interface for local LLM message
+ * Local LLM message format
  */
 interface LocalLLMMessage {
 	role: 'system' | 'user' | 'assistant';
@@ -42,24 +23,32 @@ interface LocalLLMMessage {
 }
 
 /**
- * Interface for local LLM response
+ * Local LLM completion request parameters
  */
-interface LocalLLMResponse {
+interface LocalLLMCompletionRequest {
+	model: string;
+	messages: LocalLLMMessage[];
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
+	stream?: boolean;
+	stop?: string[];
+}
+
+/**
+ * Local LLM API response format
+ */
+interface LocalLLMCompletionResponse {
 	id: string;
 	object: string;
 	created: number;
 	model: string;
 	choices: {
 		index: number;
-		message?: LocalLLMMessage;
-		text?: string;
-		delta?: {
-			role?: string;
-			content?: string;
-		};
-		finish_reason: string | null;
+		message: LocalLLMMessage;
+		finish_reason: string;
 	}[];
-	usage?: {
+	usage: {
 		prompt_tokens: number;
 		completion_tokens: number;
 		total_tokens: number;
@@ -67,16 +56,42 @@ interface LocalLLMResponse {
 }
 
 /**
- * Provider for local LLMs
+ * Local LLM stream chunk format
+ */
+interface LocalLLMStreamChunk {
+	id?: string;
+	object?: string;
+	created?: number;
+	model?: string;
+	choices?: {
+		index?: number;
+		delta?: {
+			role?: string;
+			content?: string;
+		};
+		finish_reason?: string | null;
+	}[];
+}
+
+/**
+ * Provider type for local LLM
+ */
+enum LocalLLMProviderType {
+	Ollama = 'ollama',
+	LlamaCpp = 'llama.cpp',
+	LocalAI = 'localai',
+	Custom = 'custom'
+}
+
+/**
+ * Provider for Local LLMs
  */
 export class LocalLLMProvider extends BaseModelProvider {
-	// Make logger protected to match base class
-	protected readonly client: AxiosInstance | null = null;
-	protected readonly configService: ConfigService;
-	// Change from private to protected to match base class
-	protected readonly apiUrl: string;
-	private isModelListLoaded = false;
-	private modelCheckInterval: NodeJS.Timeout | null = null;
+	private readonly configService: ConfigService;
+	private client: AxiosInstance | null = null;
+	private baseUrl: string = 'http://localhost:11434/v1';
+	private modelPath: string = '';
+	private providerType: LocalLLMProviderType = LocalLLMProviderType.Ollama;
 
 	/**
 	 * Create a new Local LLM provider
@@ -84,25 +99,8 @@ export class LocalLLMProvider extends BaseModelProvider {
 	 * @param logger Logger instance
 	 */
 	constructor(configService: ConfigService, logger: Logger) {
-		super('local-llm', 'Local LLM', configService, logger);
-
+		super('localllm', 'Local LLM', configService, logger);
 		this.configService = configService;
-		this.apiUrl = this.configService.get<string>('localLLM.apiUrl', 'http://localhost:1234/v1');
-
-		// Initialize with a default model
-		this.models.set('local-model', {
-			id: 'local-model',
-			name: 'Local Model',
-			contextLength: 8192,
-			capabilities: [
-				ModelCapability.ChatCompletion,
-				ModelCapability.CodeGeneration
-			],
-			available: false
-		});
-
-		// Create debounced check function
-		this.debouncedCheckModels = debounce(this.checkModels.bind(this), 5000);
 	}
 
 	/**
@@ -113,196 +111,204 @@ export class LocalLLMProvider extends BaseModelProvider {
 		try {
 			this.logger.info('Initializing Local LLM provider');
 
-			// Initialize HTTP client
-			this.client = axios.create({
-				baseURL: this.apiUrl,
-				timeout: 30000,
-				headers: {
-					'Content-Type': 'application/json'
-				}
-			});
+			// Get provider configuration
+			this.providerType = this.configService.get<LocalLLMProviderType>(
+				'providers.localLLM.type',
+				LocalLLMProviderType.Ollama
+			);
 
-			// Check if the API is accessible
-			const isAvailable = await this.checkApiAvailability();
-
-			if (isAvailable) {
-				this.logger.info('Local LLM API is available');
-				this._isReady = true;
-
-				// Load available models
-				await this.loadAvailableModels();
-
-				// Start periodic model checking
-				this.startModelChecking();
-
-				return true;
+			// Get base URL based on provider type
+			switch (this.providerType) {
+				case LocalLLMProviderType.Ollama:
+					this.baseUrl = this.configService.get<string>(
+						'providers.localLLM.ollama.baseUrl',
+						'http://localhost:11434/v1'
+					);
+					break;
+				case LocalLLMProviderType.LlamaCpp:
+					this.baseUrl = this.configService.get<string>(
+						'providers.localLLM.llamaCpp.baseUrl',
+						'http://localhost:8080/v1'
+					);
+					break;
+				case LocalLLMProviderType.LocalAI:
+					this.baseUrl = this.configService.get<string>(
+						'providers.localLLM.localAI.baseUrl',
+						'http://localhost:8080/v1'
+					);
+					break;
+				case LocalLLMProviderType.Custom:
+					this.baseUrl = this.configService.get<string>(
+						'providers.localLLM.custom.baseUrl',
+						'http://localhost:8080/v1'
+					);
+					break;
+				default:
+					this.baseUrl = 'http://localhost:11434/v1';
 			}
 
-			this.logger.warn('Local LLM API is not available');
-			this._isReady = false;
-			return false;
-		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			this.logger.error(`Failed to initialize Local LLM provider: ${errorMessage}`);
-			this._isReady = false;
-			return false;
-		}
-	}
+			// Get model path if applicable
+			this.modelPath = this.configService.get<string>(
+				'providers.localLLM.modelPath',
+				''
+			);
 
-	/**
-	 * Check API availability
-	 */
-	private async checkApiAvailability(): Promise<boolean> {
-		if (!this.client) {
-			return false;
-		}
+			// Initialize API client
+			this.client = axios.create({
+				baseURL: this.baseUrl,
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				timeout: 60000
+			});
 
-		try {
-			const response = await this.client.get('/models', { timeout: 2000 });
-			return response.status === 200;
+			// Try to load available models
+			try {
+				await this.loadModels();
+				this._isReady = true;
+				this.logger.info('Local LLM provider initialized successfully');
+				return true;
+			} catch (error) {
+				this.logger.error(`Failed to load Local LLM models: ${error instanceof Error ? error.message : String(error)}`);
+				return false;
+			}
 		} catch (error) {
+			this.logger.error(`Failed to initialize Local LLM provider: ${error instanceof Error ? error.message : String(error)}`);
 			return false;
 		}
 	}
 
 	/**
-	 * Load available models from the API
+	 * Load available models
 	 */
-	private async loadAvailableModels(): Promise<void> {
-		if (!this.client || !this._isReady) {
-			return;
+	private async loadModels(): Promise<void> {
+		try {
+			// Different approaches based on provider type
+			switch (this.providerType) {
+				case LocalLLMProviderType.Ollama:
+					await this.loadOllamaModels();
+					break;
+				case LocalLLMProviderType.LlamaCpp:
+				case LocalLLMProviderType.LocalAI:
+				case LocalLLMProviderType.Custom:
+					await this.loadGenericModels();
+					break;
+			}
+
+			this.logger.info(`Loaded ${this.models.size} Local LLM models`);
+		} catch (error) {
+			throw new Error(`Failed to load Local LLM models: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	/**
+	 * Load Ollama models
+	 */
+	private async loadOllamaModels(): Promise<void> {
+		if (!this.client) {
+			throw new Error('Client not initialized');
 		}
 
 		try {
 			const response = await this.client.get('/models');
+			const models = response.data.models || [];
 
-			if (response.status === 200 && response.data.data) {
-				// Clear existing models
-				this.models.clear();
+			for (const model of models) {
+				const capabilities = this.inferModelCapabilities(model.name);
+				const contextLength = this.inferContextLength(model.name);
 
-				// Add each model from the API
-				for (const model of response.data.data) {
-					this.models.set(model.id, {
-						id: model.id,
-						name: model.id,
-						contextLength: this.estimateContextLength(model.id),
-						capabilities: this.inferModelCapabilities(model.id),
-						available: true
-					});
-				}
-
-				this.isModelListLoaded = true;
-				this.logger.info(`Loaded ${this.models.size} local models`);
-			}
-		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			this.logger.warn(`Failed to load local models: ${errorMessage}`);
-
-			// Add a default model if we couldn't load any
-			if (this.models.size === 0) {
-				this.models.set('local-model', {
-					id: 'local-model',
-					name: 'Local Model',
-					contextLength: 8192,
-					capabilities: [
-						ModelCapability.ChatCompletion,
-						ModelCapability.CodeGeneration
-					],
+				this.models.set(model.name, {
+					id: model.name,
+					name: model.name,
+					contextLength,
+					capabilities,
 					available: true
 				});
 			}
-		}
-	}
-
-	/**
-	 * Estimate context length based on model name
-	 * @param modelId Model ID
-	 * @returns Estimated context length
-	 */
-	private estimateContextLength(modelId: string): number {
-		// Estimate based on model name patterns
-		const lowerModelId = modelId.toLowerCase();
-
-		if (lowerModelId.includes('70b') || lowerModelId.includes('claude')) {
-			return 32768;
-		} else if (lowerModelId.includes('13b') || lowerModelId.includes('wizardcoder') || lowerModelId.includes('llama-2')) {
-			return 16384;
-		} else if (lowerModelId.includes('7b') || lowerModelId.includes('coder')) {
-			return 8192;
-		}
-
-		// Default for unknown models
-		return 4096;
-	}
-
-	/**
-	 * Infer model capabilities from model name
-	 * @param modelId Model ID
-	 * @returns Array of capabilities
-	 */
-	private inferModelCapabilities(modelId: string): ModelCapability[] {
-		const capabilities: ModelCapability[] = [];
-		const lowerModelId = modelId.toLowerCase();
-
-		// All models support basic capabilities
-		capabilities.push(ModelCapability.ChatCompletion);
-		capabilities.push(ModelCapability.Completion);
-
-		// Code-specific models
-		if (lowerModelId.includes('code') || lowerModelId.includes('starcoder') ||
-			lowerModelId.includes('wizard') || lowerModelId.includes('llama-2') ||
-			lowerModelId.includes('codellama')) {
-			capabilities.push(ModelCapability.CodeGeneration);
-			capabilities.push(ModelCapability.CodeCompletion);
-			capabilities.push(ModelCapability.Explanation);
-
-			// More advanced code capabilities for larger models
-			if (lowerModelId.includes('13b') || lowerModelId.includes('70b') ||
-				lowerModelId.includes('34b') || lowerModelId.includes('wizard')) {
-				capabilities.push(ModelCapability.Refactoring);
-				capabilities.push(ModelCapability.Planning);
-			}
-		}
-
-		return capabilities;
-	}
-
-	/**
-	 * Start periodic model checking
-	 */
-	private startModelChecking(): void {
-		if (this.modelCheckInterval) {
-			clearInterval(this.modelCheckInterval);
-		}
-
-		// Check models every 5 minutes
-		this.modelCheckInterval = setInterval(() => {
-			this.debouncedCheckModels();
-		}, 5 * 60 * 1000);
-	}
-
-	/**
-	 * Debounced check models function
-	 */
-	private debouncedCheckModels: () => void;
-
-	/**
-	 * Check for available models
-	 */
-	private async checkModels(): Promise<void> {
-		if (!this._isReady) {
-			return;
-		}
-
-		try {
-			const isAvailable = await this.checkApiAvailability();
-
-			if (isAvailable && !this.isModelListLoaded) {
-				await this.loadAvailableModels();
-			}
 		} catch (error) {
-			// Silently handle errors during background checks
+			// Fall back to some standard models
+			this.addDefaultModels();
+			throw new Error(`Failed to fetch Ollama models: ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+
+	/**
+	 * Load generic models for other providers
+	 */
+	private async loadGenericModels(): Promise<void> {
+		// For non-Ollama providers, we add default models
+		// based on common local models
+		this.addDefaultModels();
+	}
+
+	/**
+	 * Add default models when API discovery fails
+	 */
+	private addDefaultModels(): void {
+		const defaultModels: Array<[string, ModelInfo]> = [
+			[
+				'llama2',
+				{
+					id: 'llama2',
+					name: 'LLaMA 2',
+					contextLength: 4096,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeCompletion,
+						ModelCapability.Explanation
+					],
+					available: true
+				}
+			],
+			[
+				'llama3',
+				{
+					id: 'llama3',
+					name: 'LLaMA 3',
+					contextLength: 8192,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeCompletion,
+						ModelCapability.CodeGeneration,
+						ModelCapability.Explanation
+					],
+					available: true
+				}
+			],
+			[
+				'mistral',
+				{
+					id: 'mistral',
+					name: 'Mistral 7B',
+					contextLength: 8192,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.Explanation
+					],
+					available: true
+				}
+			],
+			[
+				'codellama',
+				{
+					id: 'codellama',
+					name: 'CodeLLaMA',
+					contextLength: 16384,
+					capabilities: [
+						ModelCapability.ChatCompletion,
+						ModelCapability.CodeCompletion,
+						ModelCapability.CodeGeneration,
+						ModelCapability.Refactoring
+					],
+					available: true
+				}
+			]
+		];
+
+		// Add models to the map
+		defaultModels.forEach(([id, info]) => {
+			this.models.set(id, info);
+		});
 	}
 
 	/**
@@ -312,17 +318,17 @@ export class LocalLLMProvider extends BaseModelProvider {
 	 * @returns Model response
 	 */
 	public async generateCompletion(prompt: string, options?: ModelRequestOptions): Promise<ModelResponse> {
-		if (!this._isReady || !this.client) {
+		if (!this.isReady || !this.client) {
 			throw new ModelProviderError('Local LLM provider not initialized', this.id);
 		}
 
+		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(ModelCapability.ChatCompletion);
+
+		if (!modelId) {
+			throw new ModelProviderError('No suitable model found for completion', this.id);
+		}
+
 		try {
-			const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(options?.capability || ModelCapability.ChatCompletion);
-
-			if (!modelId) {
-				throw new ModelProviderError('No suitable model found', this.id);
-			}
-
 			// Prepare messages
 			const messages: LocalLLMMessage[] = [];
 
@@ -340,60 +346,40 @@ export class LocalLLMProvider extends BaseModelProvider {
 				content: prompt
 			});
 
-			// Prepare request
-			const request: LocalLLMRequest = {
+			// Prepare request based on provider type
+			const request: LocalLLMCompletionRequest = {
 				model: modelId,
 				messages,
 				temperature: options?.temperature ?? 0.7,
-				top_p: options?.topP ?? 1.0,
-				max_tokens: options?.maxTokens ?? 1024,
-				stop: options?.stopSequences
+				top_p: options?.topP ?? 1,
+				max_tokens: options?.maxTokens,
+				stop: options?.stopSequences,
+				stream: false
 			};
 
-			// Make request
-			const response = await this.client.post('/chat/completions', request);
-			const data = response.data as LocalLLMResponse;
+			const endpoint = this.getCompletionEndpoint();
+			const response = await this.client.post<LocalLLMCompletionResponse>(endpoint, request);
 
-			// Extract content and token counts
-			const content = data.choices[0]?.message?.content || '';
-			const promptTokens = data.usage?.prompt_tokens || 0;
-			const completionTokens = data.usage?.completion_tokens || 0;
+			// Extract content based on provider type
+			const content = this.extractContentFromResponse(response.data);
 
 			return {
 				content,
-				promptTokens,
-				completionTokens,
-				totalTokens: promptTokens + completionTokens,
+				promptTokens: response.data.usage?.prompt_tokens || this.estimateTokenCount(prompt),
+				completionTokens: response.data.usage?.completion_tokens || this.estimateTokenCount(content),
+				totalTokens: response.data.usage?.total_tokens ||
+					(this.estimateTokenCount(prompt) + this.estimateTokenCount(content)),
 				metadata: {
 					model: modelId,
-					finishReason: data.choices[0]?.finish_reason
+					provider: this.id,
+					finishReason: response.data.choices?.[0]?.finish_reason || 'stop'
 				}
 			};
 		} catch (error) {
-			if (axios.isAxiosError(error)) {
-				const axiosError = error as AxiosError;
-				let errorMessage = axiosError.message;
-
-				// Safely access potential error details
-				if (axiosError.response?.data) {
-					const data = axiosError.response.data as any;
-					if (data.error && typeof data.error === 'object' && data.error.message) {
-						errorMessage = data.error.message;
-					} else if (typeof data.error === 'string') {
-						errorMessage = data.error;
-					}
-				}
-
-				throw new ModelProviderError(
-					`Local LLM request failed: ${errorMessage}`,
-					this.id,
-					options?.modelParams?.modelId as string
-				);
-			}
-
 			throw new ModelProviderError(
 				`Local LLM request failed: ${error instanceof Error ? error.message : String(error)}`,
-				this.id
+				this.id,
+				modelId
 			);
 		}
 	}
@@ -409,11 +395,11 @@ export class LocalLLMProvider extends BaseModelProvider {
 		handler: StreamingResponseHandler,
 		options?: ModelRequestOptions
 	): Promise<void> {
-		if (!this._isReady || !this.client) {
+		if (!this.isReady || !this.client) {
 			throw new ModelProviderError('Local LLM provider not initialized', this.id);
 		}
 
-		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(options?.capability || ModelCapability.ChatCompletion);
+		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(ModelCapability.ChatCompletion);
 
 		if (!modelId) {
 			throw new ModelProviderError('No suitable model found for streaming', this.id);
@@ -438,24 +424,24 @@ export class LocalLLMProvider extends BaseModelProvider {
 			});
 
 			// Prepare request
-			const request: LocalLLMRequest = {
+			const request: LocalLLMCompletionRequest = {
 				model: modelId,
 				messages,
 				temperature: options?.temperature ?? 0.7,
-				top_p: options?.topP ?? 1.0,
-				max_tokens: options?.maxTokens ?? 1024,
-				stream: true,
-				stop: options?.stopSequences
+				top_p: options?.topP ?? 1,
+				max_tokens: options?.maxTokens,
+				stop: options?.stopSequences,
+				stream: true
 			};
 
-			// Make streaming request
-			const response = await this.client.post('/chat/completions', request, {
+			const endpoint = this.getCompletionEndpoint();
+			const response = await this.client.post(endpoint, request, {
 				responseType: 'stream'
 			});
 
 			let accumulatedContent = '';
 			let finishReason = '';
-			let promptTokens = 0;
+			const promptTokens = this.estimateTokenCount(prompt);
 			let completionTokens = 0;
 
 			response.data.on('data', (chunk: Buffer) => {
@@ -472,22 +458,17 @@ export class LocalLLMProvider extends BaseModelProvider {
 							continue;
 						}
 
-						const data = JSON.parse(dataMatch[1]) as LocalLLMResponse;
-						const content = data.choices[0]?.delta?.content || '';
+						const data = JSON.parse(dataMatch[1]) as LocalLLMStreamChunk;
+						const content = data.choices?.[0]?.delta?.content || '';
 
 						if (content) {
 							accumulatedContent += content;
 							handler.onContent(content);
+							completionTokens = this.estimateTokenCount(accumulatedContent);
 						}
 
-						if (data.choices[0]?.finish_reason) {
+						if (data.choices?.[0]?.finish_reason) {
 							finishReason = data.choices[0].finish_reason;
-						}
-
-						// Track token usage if available in this chunk
-						if (data.usage) {
-							promptTokens = data.usage.prompt_tokens;
-							completionTokens += data.usage.completion_tokens;
 						}
 					}
 				} catch (error) {
@@ -501,13 +482,8 @@ export class LocalLLMProvider extends BaseModelProvider {
 			});
 
 			response.data.on('end', () => {
-				// If we didn't get token counts from the API, estimate them
-				if (promptTokens === 0) {
-					promptTokens = Math.ceil(prompt.length / 4);
-				}
-				if (completionTokens === 0) {
-					completionTokens = Math.ceil(accumulatedContent.length / 4);
-				}
+				// Calculate final token counts
+				completionTokens = this.estimateTokenCount(accumulatedContent);
 
 				handler.onComplete({
 					content: accumulatedContent,
@@ -516,42 +492,53 @@ export class LocalLLMProvider extends BaseModelProvider {
 					totalTokens: promptTokens + completionTokens,
 					metadata: {
 						model: modelId,
+						provider: this.id,
 						finishReason: finishReason || 'stop'
 					}
 				});
 			});
 		} catch (error) {
-			if (axios.isAxiosError(error)) {
-				const axiosError = error as AxiosError;
-				let errorMessage = axiosError.message;
+			handler.onError(
+				new ModelProviderError(
+					`Local LLM streaming failed: ${error instanceof Error ? error.message : String(error)}`,
+					this.id,
+					modelId
+				)
+			);
+		}
+	}
 
-				// Safely access potential error details
-				if (axiosError.response?.data) {
-					const data = axiosError.response.data as any;
-					if (data.error && typeof data.error === 'object' && data.error.message) {
-						errorMessage = data.error.message;
-					} else if (typeof data.error === 'string') {
-						errorMessage = data.error;
-					}
-				}
+	/**
+	 * Get the appropriate completion endpoint based on provider type
+	 * @returns API endpoint path
+	 */
+	private getCompletionEndpoint(): string {
+		switch (this.providerType) {
+			case LocalLLMProviderType.Ollama:
+				return '/chat/completions';
+			case LocalLLMProviderType.LocalAI:
+			case LocalLLMProviderType.LlamaCpp:
+			case LocalLLMProviderType.Custom:
+			default:
+				return '/chat/completions';
+		}
+	}
 
-				handler.onError(
-					new ModelProviderError(
-						`Local LLM streaming failed: ${errorMessage}`,
-						this.id,
-						modelId,
-						String(axiosError.response?.status || 'NETWORK_ERROR')
-					)
-				);
-			} else {
-				handler.onError(
-					new ModelProviderError(
-						`Local LLM streaming failed: ${error instanceof Error ? error.message : String(error)}`,
-						this.id,
-						modelId
-					)
-				);
-			}
+	/**
+	 * Extract content from response based on provider type
+	 * @param response API response
+	 * @returns Extracted content
+	 */
+	private extractContentFromResponse(response: LocalLLMCompletionResponse): string {
+		// Extract based on provider type
+		switch (this.providerType) {
+			case LocalLLMProviderType.Ollama:
+				return response.choices?.[0]?.message?.content || '';
+			case LocalLLMProviderType.LlamaCpp:
+			case LocalLLMProviderType.LocalAI:
+			case LocalLLMProviderType.Custom:
+			default:
+				return response.choices?.[0]?.message?.content || '';
 		}
 	}
 
@@ -561,8 +548,89 @@ export class LocalLLMProvider extends BaseModelProvider {
 	 * @returns Token count
 	 */
 	public async countTokens(text: string): Promise<number> {
-		// Simple approximation: ~4 characters per token for English text
+		return this.estimateTokenCount(text);
+	}
+
+	/**
+	 * Estimate token count based on text length
+	 * @param text Text to estimate tokens for
+	 * @returns Estimated token count
+	 */
+	private estimateTokenCount(text: string): number {
+		// Roughly 4 chars per token for English text
 		return Math.ceil(text.length / 4);
+	}
+
+	/**
+	 * Infer model capabilities from model name
+	 * @param modelName Model name
+	 * @returns Array of capabilities
+	 */
+	private inferModelCapabilities(modelName: string): ModelCapability[] {
+		const capabilities: ModelCapability[] = [ModelCapability.ChatCompletion];
+		const lowerName = modelName.toLowerCase();
+
+		// Code-related models
+		if (
+			lowerName.includes('code') ||
+			lowerName.includes('starcoder') ||
+			lowerName.includes('wizardcoder') ||
+			lowerName.includes('deepseek-coder') ||
+			lowerName.includes('phind')
+		) {
+			capabilities.push(ModelCapability.CodeCompletion);
+			capabilities.push(ModelCapability.CodeGeneration);
+			capabilities.push(ModelCapability.Refactoring);
+		}
+
+		// Math or reasoning models
+		if (
+			lowerName.includes('math') ||
+			lowerName.includes('wizard')
+		) {
+			capabilities.push(ModelCapability.Explanation);
+		}
+
+		// Any large or advanced model
+		if (
+			lowerName.includes('13b') ||
+			lowerName.includes('34b') ||
+			lowerName.includes('70b') ||
+			lowerName.includes('7b-instruct') ||
+			lowerName.includes('llama-3')
+		) {
+			capabilities.push(ModelCapability.Explanation);
+			capabilities.push(ModelCapability.CodeCompletion);
+		}
+
+		// Specific models with known capabilities
+		if (lowerName.includes('llama3') || lowerName.includes('llama-3')) {
+			capabilities.push(ModelCapability.Planning);
+		}
+
+		return capabilities;
+	}
+
+	/**
+	 * Infer context length from model name
+	 * @param modelName Model name
+	 * @returns Context length
+	 */
+	private inferContextLength(modelName: string): number {
+		const lowerName = modelName.toLowerCase();
+
+		if (lowerName.includes('llama-3') || lowerName.includes('llama3')) {
+			return 8192;
+		} else if (lowerName.includes('mistral') || lowerName.includes('mixtral')) {
+			return 8192;
+		} else if (lowerName.includes('codellama')) {
+			return 16384;
+		} else if (lowerName.includes('deepseek')) {
+			return 4096;
+		}
+
+		// Default
+		return 4096;
 	}
 
 	/**
@@ -580,52 +648,29 @@ export class LocalLLMProvider extends BaseModelProvider {
 	 * @returns Model ID or null if no suitable model found
 	 */
 	public async getDefaultModelForCapability(capability: ModelCapability): Promise<string | null> {
-		// If no models are loaded, try to load them
-		if (this.models.size === 0 || !this.isModelListLoaded) {
-			await this.loadAvailableModels();
-		}
+		// Get preferred model from config
+		const preferredModel = this.configService.get<string>('providers.localLLM.preferredModel', '');
 
-		// Find models with the requested capability
-		const modelsWithCapability = Array.from(this.models.values()).filter(
-			model => model.capabilities.includes(capability)
-		);
-
-		if (modelsWithCapability.length === 0) {
-			return null;
-		}
-
-		// Prefer models with code in the name for code-related capabilities
-		if (capability === ModelCapability.CodeGeneration ||
-			capability === ModelCapability.CodeCompletion ||
-			capability === ModelCapability.Refactoring) {
-
-			const codeModels = modelsWithCapability.filter(
-				model => model.id.toLowerCase().includes('code') ||
-					model.id.toLowerCase().includes('wizard') ||
-					model.id.toLowerCase().includes('starcoder')
-			);
-
-			if (codeModels.length > 0) {
-				// Sort by estimated capability (context length is a proxy)
-				codeModels.sort((a, b) => b.contextLength - a.contextLength);
-				return codeModels[0].id;
+		if (preferredModel && this.models.has(preferredModel)) {
+			const model = this.models.get(preferredModel);
+			if (model && model.capabilities.includes(capability)) {
+				return model.id;
 			}
 		}
 
-		// Sort by estimated capability (context length is a proxy)
-		modelsWithCapability.sort((a, b) => b.contextLength - a.contextLength);
-		return modelsWithCapability[0].id;
+		// Find a model with the requested capability
+		const models = Array.from(this.models.values())
+			.filter(model => model.capabilities.includes(capability))
+			.sort((a, b) => b.contextLength - a.contextLength); // Prefer larger context
+
+		return models.length > 0 ? models[0].id : null;
 	}
 
 	/**
 	 * Dispose of resources
 	 */
 	public dispose(): void {
-		if (this.modelCheckInterval) {
-			clearInterval(this.modelCheckInterval);
-			this.modelCheckInterval = null;
-		}
-
 		this._isReady = false;
+		this.client = null;
 	}
 }

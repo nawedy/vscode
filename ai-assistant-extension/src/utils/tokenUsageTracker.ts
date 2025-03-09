@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { Logger } from './logger';
+import { ModelProvider } from '../ai/providers/baseProvider';
 
 /**
  * Token usage data structure
@@ -9,6 +11,7 @@ export interface TokenUsage {
 	promptTokens: number;
 	completionTokens: number;
 	timestamp: number;
+	totalTokens: number;
 }
 
 /**
@@ -31,6 +34,22 @@ export interface TokenUsageSummary {
 }
 
 /**
+ * Token statistics
+ */
+export interface TokenStats {
+	totalUsage: number;
+	periodUsage: number;
+	averageUsage: number;
+}
+
+interface UsageStats {
+	periodTokens: number;
+	totalTokens: number;
+	averageTokens: number;
+	usageByDay: Map<string, number>;
+}
+
+/**
  * Tracks token usage across different providers and models
  */
 export class TokenUsageTracker {
@@ -38,6 +57,9 @@ export class TokenUsageTracker {
 	private readonly storageKey = 'ai-assistant.tokenUsage';
 	private usage: TokenUsage[] = [];
 	private readonly changeEmitter = new vscode.EventEmitter<TokenUsageSummary>();
+	private readonly retentionDays: number = 30;
+	private readonly logger: Logger;
+	private readonly usageHistory: TokenUsage[] = [];
 
 	/**
 	 * Event that fires when token usage changes
@@ -47,9 +69,11 @@ export class TokenUsageTracker {
 	/**
 	 * Create a new token usage tracker
 	 * @param context Extension context for storage
+	 * @param logger Logger instance
 	 */
-	constructor(context: vscode.ExtensionContext) {
+	constructor(context: vscode.ExtensionContext, logger: Logger) {
 		this.context = context;
+		this.logger = logger;
 		this.loadUsage();
 	}
 
@@ -82,7 +106,8 @@ export class TokenUsageTracker {
 			modelId,
 			promptTokens: tokens,
 			completionTokens: 0,
-			timestamp: Date.now()
+			timestamp: Date.now(),
+			totalTokens: tokens
 		});
 		this.saveUsage();
 		this.changeEmitter.fire(this.getSummary());
@@ -100,7 +125,8 @@ export class TokenUsageTracker {
 			modelId,
 			promptTokens: 0,
 			completionTokens: tokens,
-			timestamp: Date.now()
+			timestamp: Date.now(),
+			totalTokens: tokens
 		});
 		this.saveUsage();
 		this.changeEmitter.fire(this.getSummary());
@@ -119,7 +145,8 @@ export class TokenUsageTracker {
 			modelId,
 			promptTokens,
 			completionTokens,
-			timestamp: Date.now()
+			timestamp: Date.now(),
+			totalTokens: promptTokens + completionTokens
 		});
 		this.saveUsage();
 		this.changeEmitter.fire(this.getSummary());
@@ -198,5 +225,119 @@ export class TokenUsageTracker {
 		}
 		this.saveUsage();
 		this.changeEmitter.fire(this.getSummary());
+	}
+
+	/**
+	 * Track token usage
+	 * @param usageOrTokens Number of tokens or token usage data
+	 * @param completionTokens Optional number of completion tokens
+	 * @param modelId Optional model ID
+	 * @param providerId Optional provider ID
+	 */
+	public trackUsage(usage: number): void;
+	public trackUsage(usage: Omit<TokenUsage, 'timestamp'>): void;
+	public trackUsage(promptTokens: number, completionTokens: number, modelId: string, providerId: string): void;
+	public trackUsage(
+		usageOrTokens: number | Omit<TokenUsage, 'timestamp'>,
+		completionTokens?: number,
+		modelId?: string,
+		providerId?: string
+	): void {
+		if (typeof usageOrTokens === 'number') {
+			if (completionTokens !== undefined && modelId && providerId) {
+				// Handle 4-parameter version
+				const usage: TokenUsage = {
+					promptTokens: usageOrTokens,
+					completionTokens,
+					totalTokens: usageOrTokens + completionTokens,
+					timestamp: Date.now(),
+					modelId,
+					providerId
+				};
+				this.usageHistory.push(usage);
+			} else {
+				// Handle single number version
+				this.usageHistory.push({
+					promptTokens: usageOrTokens,
+					completionTokens: 0,
+					totalTokens: usageOrTokens,
+					timestamp: Date.now(),
+					providerId: 'unknown'
+				});
+			}
+		} else {
+			// Handle object version
+			this.usageHistory.push({
+				...usageOrTokens,
+				timestamp: Date.now()
+			});
+		}
+		this.pruneOldEntries();
+	}
+
+	/**
+	 * Get token statistics
+	 * @param periodDays Number of days for the period
+	 * @returns Token statistics
+	 */
+	public getStats(periodDays: number = 30): TokenStats {
+		const now = Date.now();
+		const periodStart = now - (periodDays * 24 * 60 * 60 * 1000);
+
+		const stats: UsageStats = {
+			periodTokens: 0,
+			totalTokens: 0,
+			averageTokens: 0,
+			usageByDay: new Map()
+		};
+
+		// Calculate usage
+		this.usageHistory.forEach(entry => {
+			stats.totalTokens += entry.totalTokens;
+			if (entry.timestamp >= periodStart) {
+				stats.periodTokens += entry.totalTokens;
+				const day = new Date(entry.timestamp).toISOString().split('T')[0];
+				stats.usageByDay.set(day, (stats.usageByDay.get(day) || 0) + entry.totalTokens);
+			}
+		});
+
+		stats.averageTokens = stats.periodTokens / periodDays;
+
+		return {
+			totalUsage: stats.totalTokens,
+			periodUsage: stats.periodTokens,
+			averageUsage: stats.averageTokens
+		};
+	}
+
+	/**
+	 * Prune old entries from usage history
+	 */
+	private pruneOldEntries(): void {
+		const cutoff = Date.now() - (this.retentionDays * 24 * 60 * 60 * 1000);
+		const index = this.usageHistory.findIndex(entry => entry.timestamp >= cutoff);
+
+		if (index > 0) {
+			this.usageHistory.splice(0, index);
+		}
+	}
+
+	/**
+	 * Get total usage
+	 * @returns Total usage
+	 */
+	public getTotalUsage(): { promptTokens: number; completionTokens: number; totalTokens: number } {
+		return this.usageHistory.reduce((acc, curr) => ({
+			promptTokens: acc.promptTokens + curr.promptTokens,
+			completionTokens: acc.completionTokens + curr.completionTokens,
+			totalTokens: acc.totalTokens + curr.totalTokens
+		}), { promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+	}
+
+	/**
+	 * Clear usage history
+	 */
+	public clearHistory(): void {
+		this.usageHistory = [];
 	}
 }

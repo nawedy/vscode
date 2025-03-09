@@ -11,6 +11,10 @@ const { execSync } = require('child_process');
 const args = process.argv.slice(2);
 const scriptPath = path.join(__dirname, 'deploy-extension.js');
 
+function deploy() {
+	// Implementation for deployment
+}
+
 try {
 	// Pass all arguments to deploy-extension.js
 	execSync(`node "${scriptPath}" ${args.join(' ')}`, {

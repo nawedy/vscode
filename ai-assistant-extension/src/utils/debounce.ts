@@ -1,36 +1,42 @@
 /**
- * Creates a debounced version of a function.
- * The debounced function will postpone its execution until after the specified wait time
- * has elapsed since the last time it was invoked.
- *
- * @param func The function to debounce
- * @param wait The number of milliseconds to wait
- * @param immediate If true, the function will be called on the leading edge instead of the trailing edge
- * @returns A debounced version of the function
+ * Debounce function type
+ */
+type DebouncedFunction<T extends (...args: any[]) => any> =
+	(...args: Parameters<T>) => ReturnType<T> extends Promise<any> ? ReturnType<T> : Promise<ReturnType<T>>;
+
+/**
+ * Debounce a function call
  */
 export function debounce<T extends (...args: any[]) => any>(
 	func: T,
 	wait: number,
-	immediate: boolean = false
+	options: { leading?: boolean; trailing?: boolean } = {}
 ): (...args: Parameters<T>) => void {
 	let timeout: NodeJS.Timeout | null = null;
+	let lastArgs: Parameters<T> | null = null;
 
 	return function (this: any, ...args: Parameters<T>): void {
-		const callNow = immediate && !timeout;
 		const later = () => {
 			timeout = null;
-			if (!immediate) {
-				func.apply(this, args);
+			if (options.trailing !== false && lastArgs) {
+				func.apply(this, lastArgs);
+				lastArgs = null;
 			}
 		};
 
 		if (timeout) {
 			clearTimeout(timeout);
-		}
-		timeout = setTimeout(later, wait);
-
-		if (callNow) {
+		} else if (options.leading && !timeout) {
 			func.apply(this, args);
 		}
+
+		lastArgs = args;
+		timeout = setTimeout(later, wait);
 	};
+}
+
+class Debounce {
+	debounce(func: Function, wait: number) {
+		// Implementation for debouncing function
+	}
 }

@@ -1,5 +1,6 @@
 import { BaseModelProvider } from '../ai/providers/baseProvider';
 import { Logger } from './logger';
+import { TokenCounter } from './tokenCounter';
 
 /**
  * Optimization level enum
@@ -10,6 +11,12 @@ export enum OptimizationLevel {
 	Moderate = 'moderate',
 	Aggressive = 'aggressive',
 	Maximum = 'maximum'
+}
+
+export enum OptimizationStrategy {
+	Truncate = 'truncate',
+	Summarize = 'summarize',
+	ChunkAndProcess = 'chunkAndProcess'
 }
 
 /**
@@ -25,6 +32,13 @@ export interface OptimizationStrategyOptions {
 	contextType: 'code' | 'documentation' | 'error' | 'general';
 }
 
+export interface OptimizationConfig {
+	maxTokens: number;
+	strategy: OptimizationStrategy;
+	preserveStructure?: boolean;
+	chunkSize?: number;
+}
+
 /**
  * Content section with priority information
  */
@@ -34,6 +48,12 @@ interface ContentSection {
 	type: 'import' | 'signature' | 'code' | 'comment' | 'docstring' | 'whitespace' | 'error' | 'other';
 	estimatedTokens?: number;
 	isEssential?: boolean; // Sections that must be kept regardless of optimization level
+}
+
+export interface TokenRange {
+	start: number;
+	end: number;
+	tokenCount: number;
 }
 
 /**
@@ -52,6 +72,11 @@ export class TokenOptimizationStrategy {
 		this.provider = provider;
 		this.logger = logger;
 	}
+
+	constructor(
+		private readonly tokenCounter: TokenCounter,
+		private readonly logger: Logger
+	) {}
 
 	/**
 	 * Optimize content to fit within token limits using an appropriate strategy
@@ -84,6 +109,19 @@ export class TokenOptimizationStrategy {
 
 		// Apply optimization strategy based on level
 		return this.applyOptimizationStrategy(sections, options, estimatedTokens);
+	}
+
+	public async optimize(text: string, config: OptimizationConfig): Promise<string> {
+		switch (config.strategy) {
+			case OptimizationStrategy.Truncate:
+				return this.truncateStrategy(text, config.maxTokens);
+			case OptimizationStrategy.Summarize:
+				return this.summarizeStrategy(text, config.maxTokens);
+			case OptimizationStrategy.ChunkAndProcess:
+				return this.chunkStrategy(text, config);
+			default:
+				return this.truncateStrategy(text, config.maxTokens);
+		}
 	}
 
 	/**
@@ -335,6 +373,71 @@ export class TokenOptimizationStrategy {
 		}
 
 		return result;
+	}
+
+	private async truncateStrategy(text: string, maxTokens: number): Promise<string> {
+		const tokens = await this.tokenCounter.countPromptTokens(text);
+		if (tokens <= maxTokens) {
+			return text;
+		}
+
+		// Simple truncation at word boundaries
+		const words = text.split(' ');
+		let result = '';
+		let currentTokens = 0;
+
+		for (const word of words) {
+			const nextPart = result ? ' ' + word : word;
+			const tokensWithNext = await this.tokenCounter.countPromptTokens(result + nextPart);
+
+			if (tokensWithNext <= maxTokens) {
+				result += nextPart;
+				currentTokens = tokensWithNext;
+			} else {
+				break;
+			}
+		}
+
+		return result;
+	}
+
+	private async summarizeStrategy(text: string, maxTokens: number): Promise<string> {
+		// Implemented in summarization service
+		return text;
+	}
+
+	private async chunkStrategy(text: string, config: OptimizationConfig): Promise<string> {
+		const chunkSize = config.chunkSize || 1000;
+		const chunks = await this.splitIntoChunks(text, chunkSize);
+
+		// Process chunks while maintaining structure if needed
+		return chunks.join(config.preserveStructure ? '\n\n' : ' ');
+	}
+
+	private async splitIntoChunks(text: string, chunkSize: number): Promise<string[]> {
+		const chunks: string[] = [];
+		const words = text.split(' ');
+		let currentChunk = '';
+
+		for (const word of words) {
+			const nextChunk = currentChunk ? currentChunk + ' ' + word : word;
+			const tokens = await this.tokenCounter.countPromptTokens(nextChunk);
+
+			if (tokens <= chunkSize) {
+				currentChunk = nextChunk;
+			} else {
+				if (currentChunk) {
+					chunks.push(currentChunk);
+				}
+				currentChunk = word;
+			}
+		}
+
+		if (currentChunk) {
+			chunks.push(currentChunk);
+		}
+
+		return chunks;
 	}
 
 	/**

@@ -11,6 +11,8 @@ import { ModelManager } from '../modelManager';
 import { Logger } from '../../utils/logger';
 import { ConfigService } from '../../services/configService';
 import { ModelCapability } from '../providers/baseProvider';
+import { SecurityScanner } from '../../security/securityScanner';
+import { VulnerabilityDetector } from '../../security/vulnerabilityDetector';
 
 /**
  * Security vulnerability information
@@ -109,29 +111,81 @@ interface GetSecurityBestPracticesParams {
 	category?: string;
 }
 
+// Add interface for compiler output
+interface CompilationResult {
+	success: boolean;
+	errors?: string[];
+	warnings?: string[];
+}
+
+// Add type for scan results
+interface ScanResult {
+	filePath: string;
+	issues: SecurityVulnerability[];
+	riskLevel: RiskLevel;
+	scanTime: number;
+	summary: string;
+}
+
+// Add type for executeTask parameters
+interface SecurityTaskParams {
+	code: string;
+	language: string;
+	filePath?: string;
+	framework?: string;
+}
+
+interface SecurityScanParams {
+	code: string;
+	language: string;
+	context?: string;
+}
+
+interface SecurityResponse {
+	issues: SecurityIssue[];
+	summary: string;
+	riskLevel: 'low' | 'medium' | 'high' | 'critical';
+}
+
+interface SecurityIssue {
+	description: string;
+	severity: 'low' | 'medium' | 'high' | 'critical';
+	line?: number;
+	suggestion?: string;
+}
+
 /**
  * Security ensemble for vulnerability detection and fixes
  */
 export class SecurityEnsemble extends EnsembleLLM {
+	private readonly scanner: SecurityScanner;
+	private readonly detector: VulnerabilityDetector;
+
 	/**
 	 * Create a new security ensemble
 	 * @param modelManager Model manager
 	 * @param logger Logger
 	 * @param configService Configuration service
+	 * @param scanner Security scanner
+	 * @param detector Vulnerability detector
 	 */
 	constructor(
 		modelManager: ModelManager,
 		logger: Logger,
-		configService: ConfigService
+		configService: ConfigService,
+		scanner: SecurityScanner,
+		detector: VulnerabilityDetector
 	) {
 		super(modelManager, logger, configService, 'security');
+		this.scanner = scanner;
+		this.detector = detector;
 
-		// Register tasks
-		this.registerTask('analyzeSecurityVulnerabilities', this.task_analyzeSecurityVulnerabilities.bind(this));
-		this.registerTask('generateSecurityFix', this.task_generateSecurityFix.bind(this));
-		this.registerTask('getSecurityBestPractices', this.task_getSecurityBestPractices.bind(this));
-		this.registerTask('generateSecurityReport', this.task_generateSecurityReport.bind(this));
-		this.registerTask('scanProject', this.task_scanProject.bind(this));
+		this.registerTasks();
+	}
+
+	private registerTasks(): void {
+		this.registerTask('analyzeSecurity', this.analyzeSecurity.bind(this));
+		this.registerTask('suggestFixes', this.suggestFixes.bind(this));
 	}
 
 	/**
@@ -139,58 +193,35 @@ export class SecurityEnsemble extends EnsembleLLM {
 	 * @param params Analysis parameters
 	 * @returns Task result with vulnerabilities
 	 */
-	async task_analyzeSecurityVulnerabilities(params: AnalyzeSecurityParams): Promise<TaskResult<SecurityScanResult>> {
-		this.logger.info('Analyzing security vulnerabilities');
-
+	private async analyzeSecurity(params: SecurityScanParams): Promise<TaskResult<SecurityResponse>> {
 		try {
-			// Create prompt for security analysis
-			const prompt = await this.buildSecurityAnalysisPrompt(params);
+			// First use traditional scanning
+			const vulnerabilities = await this.detector.scanFile(params.code);
 
-			// Call the model with the appropriate capability
-			const response = await this.modelManager.generateCompletion(prompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-				capability: ModelCapability.SecurityAnalysis,
-				taskType: 'analyzeSecurityVulnerabilities',
-				temperature: 0.1,  // Low temperature for consistent security analysis
-				maxTokens: 2048
-			});
+			// Then use AI models for deeper analysis
+			const aiAnalysis = await this.modelManager.generateCompletion(
+				this.buildSecurityPrompt(params),
+				{
+					capability: ModelCapability.SecurityAnalysis,
+					systemPrompt: 'You are a security expert analyzing code for vulnerabilities.'
+				}
+			);
 
-			// Parse the response to extract vulnerabilities
-			const vulnerabilities = this.parseSecurityAnalysisResponse(response.content, params);
-
-// @ts-ignore: error TS2339: Property 'calculateRiskLevel' does not exist on type 'SecurityEnsemble'.
-			// Determine risk level based on vulnerabilities
-			const riskLevel = this.calculateRiskLevel(vulnerabilities);
-
-			// Create scan result
-			const scanResult: SecurityScanResult = {
-				filePath: params.filePath || 'unknown',
-				language: params.language,
-				issues: vulnerabilities,
-				riskLevel,
-				scannedAt: Date.now()
-			};
+			// Combine and process results
+			const issues = this.processSecurityResults(vulnerabilities, aiAnalysis);
 
 			return {
 				success: true,
-				content: scanResult,
-				metadata: {
-					promptTokens: response.promptTokens,
-					completionTokens: response.completionTokens,
-					totalTokens: response.totalTokens
+				content: {
+					issues,
+					summary: this.generateSummary(issues),
+					riskLevel: this.calculateRiskLevel(issues)
 				}
 			};
 		} catch (error) {
-			this.logger.error(`Error analyzing security: ${error instanceof Error ? error.message : String(error)}`);
-
 			return {
 				success: false,
-				error: `Failed to analyze security vulnerabilities: ${error instanceof Error ? error.message : String(error)}`
+				error: `Security analysis failed: ${error instanceof Error ? error.message : String(error)}`
 			};
 		}
 	}
@@ -209,14 +240,7 @@ export class SecurityEnsemble extends EnsembleLLM {
 
 			// Call the model with the appropriate capability
 			const response = await this.modelManager.generateCompletion(prompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 				capability: ModelCapability.SecurityAnalysis,
-				taskType: 'generateSecurityFix',
 				temperature: 0.2,
 				maxTokens: 3072
 			});
@@ -257,14 +281,7 @@ export class SecurityEnsemble extends EnsembleLLM {
 
 			// Call the model with the appropriate capability
 			const response = await this.modelManager.generateCompletion(prompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 				capability: ModelCapability.SecurityAnalysis,
-				taskType: 'getSecurityBestPractices',
 				temperature: 0.1,
 				maxTokens: 2048
 			});
@@ -305,14 +322,7 @@ export class SecurityEnsemble extends EnsembleLLM {
 
 			// Call the model with the appropriate capability
 			const response = await this.modelManager.generateCompletion(prompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 				capability: ModelCapability.SecurityAnalysis,
-				taskType: 'generateSecurityReport',
 				temperature: 0.2,
 				maxTokens: 4096
 			});
@@ -347,7 +357,7 @@ export class SecurityEnsemble extends EnsembleLLM {
 	 * @param params Project scan parameters
 	 * @returns Task result with scan summary
 	 */
-	async task_scanProject(params: { files: Array<{ path: string, content: string, language: string }> }): Promise<TaskResult<SecurityScanSummary>> {
+	async task_scanProject(params: { files: Array<{ path: string; content: string; language: string }> }): Promise<TaskResult<SecurityScanSummary>> {
 		this.logger.info(`Scanning project with ${params.files.length} files`);
 
 		try {
@@ -443,14 +453,8 @@ export class SecurityEnsemble extends EnsembleLLM {
 		// Try to get template from prompt manager
 		const template = this.promptManager.getTemplate('security-vulnerability-analysis');
 
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
 		if (template) {
-			return this.promptManager.renderTemplate('security-vulnerability-analysis', {
+			return this.promptManager.render('security-vulnerability-analysis', {
 				code: params.code,
 				language: params.language,
 				filePath: params.filePath || 'unknown',
@@ -521,7 +525,7 @@ If no vulnerabilities are found, return an empty array: \`[]\`
 		try {
 			// Extract JSON from response (may be wrapped in markdown code blocks)
 			const jsonMatch = response.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/) ||
-						[null, response.trim()];
+				[null, response.trim()];
 
 			const jsonStr = jsonMatch[1];
 
@@ -561,14 +565,8 @@ If no vulnerabilities are found, return an empty array: \`[]\`
 		// Try to get template from prompt manager
 		const template = this.promptManager.getTemplate('security-vulnerability-fix');
 
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
 		if (template) {
-			return this.promptManager.renderTemplate('security-vulnerability-fix', {
+			return this.promptManager.render('security-vulnerability-fix', {
 				code: params.code,
 				language: params.language,
 				vulnerabilities: JSON.stringify(params.vulnerabilities, null, 2)
@@ -647,14 +645,8 @@ EXPLANATION:
 		// Try to get template from prompt manager
 		const template = this.promptManager.getTemplate('security-best-practices');
 
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
 		if (template) {
-			return this.promptManager.renderTemplate('security-best-practices', {
+			return this.promptManager.render('security-best-practices', {
 				language: params.language,
 				framework: params.framework || 'unknown',
 				codeType: params.codeType || 'unknown',
@@ -718,7 +710,7 @@ Format your response as a JSON array with each best practice as an object:
 		try {
 			// Extract JSON from response (may be wrapped in markdown code blocks)
 			const jsonMatch = response.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/) ||
-						[null, response.trim()];
+				[null, response.trim()];
 
 			const jsonStr = jsonMatch[1];
 
@@ -755,14 +747,8 @@ Format your response as a JSON array with each best practice as an object:
 		// Try to get template from prompt manager
 		const template = this.promptManager.getTemplate('security-report');
 
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
 		if (template) {
-			return this.promptManager.renderTemplate('security-report', {
+			return this.promptManager.render('security-report', {
 				projectName: params.projectName,
 				detailLevel: params.detailLevel || 'brief',
 				format: params.format || 'markdown',
@@ -835,30 +821,12 @@ Format your response as follows:
 		for (const result of scanResults) {
 			if (result.riskLevel === 'CRITICAL') {
 				return 'CRITICAL';
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
 			}
 			if (result.riskLevel === 'HIGH' && highestRiskLevel !== 'CRITICAL') {
 				highestRiskLevel = 'HIGH';
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
 			}
 			if (result.riskLevel === 'MEDIUM' && highestRiskLevel !== 'CRITICAL' && highestRiskLevel !== 'HIGH') {
 				highestRiskLevel = 'MEDIUM';
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
-// @ts-ignore: error TS2367: This comparison appears to be unintentional because the types '"HIGH" | "MEDIUM" | "LOW" | "SECURE"' and '"CRITICAL"' have no overlap.
 			}
 			if (result.riskLevel === 'LOW' && highestRiskLevel !== 'CRITICAL' && highestRiskLevel !== 'HIGH' && highestRiskLevel !== 'MEDIUM') {
 				highestRiskLevel = 'LOW';
@@ -943,5 +911,46 @@ Format your response as follows:
 		const start = this.validateLineNumber(startLine) - 1;
 		const end = this.validateLineNumber(endLine, startLine) - 1;
 		return lines.slice(start, end + 1).join('\n');
+	}
+
+	/**
+	 * Execute a security task
+	 * @param taskName Task name
+	 * @param params Task parameters
+	 * @returns Task result
+	 */
+	async executeTask<T>(
+		taskName: string,
+		params: SecurityTaskParams
+	): Promise<TaskResult<T>> {
+		// ...existing code...
+	}
+
+	private async suggestFixes(params: SecurityScanParams): Promise<TaskResult<string[]>> {
+		// Implementation for suggesting security fixes
+		// ...existing code...
+	}
+
+	private buildSecurityPrompt(params: SecurityScanParams): string {
+		// Implementation for building security prompt
+		// ...existing code...
+	}
+
+	private processSecurityResults(
+		vulnerabilities: Vulnerability[],
+		aiAnalysis: ModelResponse
+	): SecurityIssue[] {
+		// Implementation for processing security results
+		// ...existing code...
+	}
+
+	private generateSummary(issues: SecurityIssue[]): string {
+		// Implementation for generating summary
+		// ...existing code...
+	}
+
+	private calculateRiskLevel(issues: SecurityIssue[]): 'low' | 'medium' | 'high' | 'critical' {
+		// Implementation for calculating risk level
+		// ...existing code...
 	}
 }

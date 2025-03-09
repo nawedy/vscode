@@ -31,8 +31,9 @@ import { ViewManager } from '../ui/viewManager';
 import { logger } from '../utils/logger';
 import { ServiceDependencies } from './index';
 import { ModelCapability } from '../ai/providers/baseProvider';
-;
+import { Logger } from '../utils/logger';
 import { ApiKeyManager } from '../security/apiKeyManager';
+import { SecurityVulnerability } from '../ai/ensemble/securityEnsemble';
 
 /**
  * Security scan result structure
@@ -48,6 +49,8 @@ interface SecurityScanResult {
 		column?: number;
 	};
 	recommendation?: string;
+	issues: SecurityVulnerability[];
+	summary: string;
 }
 
 /**
@@ -162,13 +165,13 @@ async function handleScanCodeSecurity(
 					);
 
 					// Load security scan template
-					const template = viewManager.loadHtmlTemplate('securityScan');
+					const template = viewManager.loadTemplate('securityScan');
 
 					// Highlight risk level with color
 					const riskLevelColor = getRiskLevelColor(scanResult.riskLevel);
 
 					// Create content
-					panel.webview.html = viewManager.createWebviewContent(panel, template, {
+					panel.webview.html = viewManager.createContent(panel, template, {
 						title: 'Security Scan Results',
 						code: codeToScan,
 						language,
@@ -293,10 +296,10 @@ async function handleFixSecurityIssues(
 					);
 
 					// Load diff view template
-					const template = viewManager.loadHtmlTemplate('diffView');
+					const template = viewManager.loadTemplate('diffView');
 
 					// Create content
-					panel.webview.html = viewManager.createWebviewContent(panel, template, {
+					panel.webview.html = viewManager.createContent(panel, template, {
 						title: 'Security Fixes',
 						originalCode: codeToFix,
 						newCode: fixedCode,
@@ -349,7 +352,7 @@ async function handleFixSpecificSecurityIssues(
 	securityEnsemble: SecurityEnsemble,
 	viewManager: ViewManager,
 	document: vscode.TextDocument,
-	issues: any[]
+	issues: SecurityVulnerability[]
 ): Promise<void> {
 	try {
 		// Get editor for this document
@@ -399,10 +402,10 @@ async function handleFixSpecificSecurityIssues(
 					);
 
 					// Load diff view template
-					const template = viewManager.loadHtmlTemplate('diffView');
+					const template = viewManager.loadTemplate('diffView');
 
 					// Create content
-					panel.webview.html = viewManager.createWebviewContent(panel, template, {
+					panel.webview.html = viewManager.createContent(panel, template, {
 						title: 'Security Fixes',
 						originalCode: codeToFix,
 						newCode: fixedCode,
@@ -541,10 +544,10 @@ async function handleGenerateSecurityReport(
 				);
 
 				// Load security report template
-				const template = viewManager.loadHtmlTemplate('securityReport');
+				const template = viewManager.loadTemplate('securityReport');
 
 				// Create content
-				panel.webview.html = viewManager.createWebviewContent(panel, template, {
+				panel.webview.html = viewManager.createContent(panel, template, {
 					title: 'Security Report',
 					scanResults: JSON.stringify(scanResults),
 					totalFiles: filesToScan.length,
@@ -644,10 +647,10 @@ async function handleSecurityBestPractices(
 					);
 
 					// Load best practices template
-					const template = viewManager.loadHtmlTemplate('securityBestPractices');
+					const template = viewManager.loadTemplate('securityBestPractices');
 
 					// Create content
-					panel.webview.html = viewManager.createWebviewContent(panel, template, {
+					panel.webview.html = viewManager.createContent(panel, template, {
 						title: 'Security Best Practices',
 						language,
 						frameworks: JSON.stringify(frameworks),
@@ -777,8 +780,8 @@ async function collectFilesToScan(includeOption: string): Promise<Array<{
  * @param highestRiskLevel Highest risk level
  * @param format Export format (markdown, html, json)
  */
-async function exportSecurityReport(
-	scanResults: any[],
+export async function exportSecurityReport(
+	scanResults: SecurityScanResult[],
 	totalIssues: number,
 	highestRiskLevel: RiskLevel,
 	format: string = 'markdown'
@@ -848,7 +851,7 @@ async function exportSecurityReport(
  * @returns Markdown content
  */
 function generateMarkdownReport(
-	scanResults: any[],
+	scanResults: SecurityScanResult[],
 	totalIssues: number,
 	highestRiskLevel: RiskLevel
 ): string {
@@ -914,7 +917,7 @@ function generateMarkdownReport(
  * @returns HTML content
  */
 function generateHtmlReport(
-	scanResults: any[],
+	scanResults: SecurityScanResult[],
 	totalIssues: number,
 	highestRiskLevel: RiskLevel
 ): string {

@@ -120,3 +120,7 @@ After deployment:
 2. Test installation from the marketplace
 3. Tag the repository with the released version
 4. Start planning the next version
+
+## Configuration Deployment
+
+- Steps for deploying configuration.

@@ -3,13 +3,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from './logger';
 
+export interface PromptTemplate {
+    name: string;
+    template: string;
+    variables: string[];
+    description?: string;
+}
+
+export interface PromptVariables {
+    [key: string]: string | number | boolean;
+}
+
 /**
  * Manages prompt templates for the extension
  */
 export class PromptManager {
 	private readonly context: vscode.ExtensionContext;
 	private readonly logger: Logger;
-	private templates: Map<string, string> = new Map();
+	private templates: Map<string, PromptTemplate> = new Map();
 	private promptsPath: string;
 
 	constructor(context: vscode.ExtensionContext, logger: Logger) {
@@ -34,7 +45,7 @@ export class PromptManager {
 
 					try {
 						const templateContent = await fs.promises.readFile(filePath, 'utf8');
-						this.templates.set(templateName, templateContent);
+						this.templates.set(templateName, { name: templateName, template: templateContent, variables: [] });
 						this.logger.debug(`Loaded template: ${templateName}`);
 					} catch (error) {
 						this.logger.error(`Failed to load template ${templateName}: ${error}`);
@@ -50,15 +61,15 @@ export class PromptManager {
 
 						// Check if it's a template with a "template" field or a collection
 						if (templateData.template && typeof templateData.template === 'string') {
-							this.templates.set(templateName, templateData.template);
+							this.templates.set(templateName, { name: templateName, template: templateData.template, variables: [] });
 							this.logger.debug(`Loaded JSON template: ${templateName}`);
 						} else if (typeof templateData === 'object') {
 							// Load each prompt in the collection
 							for (const [key, value] of Object.entries(templateData)) {
 								if (typeof value === 'string') {
-									this.templates.set(`${templateName}-${key}`, value);
+									this.templates.set(`${templateName}-${key}`, { name: `${templateName}-${key}`, template: value, variables: [] });
 								} else if (value && typeof value === 'object' && 'template' in value && typeof value.template === 'string') {
-									this.templates.set(`${templateName}-${key}`, value.template);
+									this.templates.set(`${templateName}-${key}`, { name: `${templateName}-${key}`, template: value.template, variables: [] });
 								}
 							}
 							this.logger.debug(`Loaded JSON template collection: ${templateName}`);
@@ -95,7 +106,7 @@ export class PromptManager {
 			throw new Error(`Template not found: ${templateName}`);
 		}
 
-		let prompt = template;
+		let prompt = template.template;
 
 		// Replace variables in the template
 		for (const [key, value] of Object.entries(variables)) {
@@ -112,6 +123,28 @@ export class PromptManager {
 	public async listTemplates(): Promise<string[]> {
 		return Array.from(this.templates.keys());
 	}
+
+    public registerTemplate(template: PromptTemplate): void {
+        this.templates.set(template.name, template);
+    }
+
+    public getTemplate(name: string): PromptTemplate | undefined {
+        return this.templates.get(name);
+    }
+
+    public renderTemplate(name: string, variables: PromptVariables): string {
+        const template = this.templates.get(name);
+        if (!template) {
+            throw new Error(`Template "${name}" not found`);
+        }
+
+        let rendered = template.template;
+        for (const [key, value] of Object.entries(variables)) {
+            rendered = rendered.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), String(value));
+        }
+
+        return rendered;
+    }
 }
 
 /**

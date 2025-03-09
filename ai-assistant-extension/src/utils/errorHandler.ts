@@ -1,6 +1,21 @@
 import * as vscode from 'vscode';
 import { Logger } from './logger';
 
+export enum ErrorSeverity {
+	Info = 'info',
+	Warning = 'warning',
+	Error = 'error',
+	Critical = 'critical'
+}
+
+export interface ErrorDetails {
+	message: string;
+	severity: ErrorSeverity;
+	source?: string;
+	stack?: string;
+	timestamp: number;
+}
+
 /**
  * Error categories for better user feedback
  */
@@ -45,15 +60,7 @@ export interface ErrorMapper {
  * Error handling utility for AI providers
  */
 export class ErrorHandler {
-	private logger: Logger;
-
-	/**
-	 * Create a new ErrorHandler
-	 * @param logger Logger instance
-	 */
-	constructor(logger: Logger) {
-		this.logger = logger;
-	}
+	constructor(private readonly logger: Logger) {}
 
 	/**
 	 * Map provider-specific errors to standardized format
@@ -418,5 +425,10 @@ export class ErrorHandler {
 
 			// More specific handlers can be added here
 		}
+	}
+
+	public async showError(message: string, ...actions: string[]): Promise<string | undefined> {
+		this.logger.error(message);
+		return await vscode.window.showErrorMessage(message, ...actions);
 	}
 }

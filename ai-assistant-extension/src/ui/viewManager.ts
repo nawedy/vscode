@@ -1,95 +1,62 @@
 /**
- * View Manager for SuperCoderAI VSCode Extension
- *
- * This file implements the view manager that coordinates all UI components
- * of the extension, including webviews, status bar items, and panels. It
- * manages the communication between UI components and the backend services.
- *
- * Key features:
- * - WebView panel management
- * - Status bar integration
- * - Message handling between UI and backend
- * - Panel persistence across reloads
- * - UI state management
- *
- * File path: src/ui/viewManager.ts
- */
-// @ts-ignore: error TS2300: Duplicate identifier 'vscode'.
-
-// @ts-ignore: error TS2300: Duplicate identifier 'path'.
-import * as vscode from 'vscode';
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-import * as path from 'path';
-import * as fs from 'fs';
-import { CodeGenerationEnsemble } from '../ai/ensemble/codeGenerationEnsemble';
-import { SecurityEnsemble } from '../ai/ensemble/securityEnsemble';
-import { ContextManager } from '../context/contextManager';
-import { logger } from '../utils/logger';
-
-// Interface for webview panel info
-interface WebviewPanelInfo {
-    panel: vscode.WebviewPanel;
-    viewType: string;
-    disposables: vscode.Disposable[];
-}
-
-// Interface for webview message
-interface WebviewMessage {
-    command: string;
-    data: any;
-}
-
-// Interface for status bar item info
-interface StatusBarItemInfo {
-    item: vscode.StatusBarItem;
-    id: string;
-    priority: number;
-}
-
-/**
  * View Manager
  *
- * Manages webview panels and views, providing consistent UI styling
- * and state management across the extension's user interfaces.
+ * Manages the various views and webviews used by the extension
  */
-// @ts-ignore: error TS2300: Duplicate identifier 'vscode'.
 
-// @ts-ignore: error TS2300: Duplicate identifier 'path'.
-;
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
-// @ts-ignore: error TS2300: Duplicate identifier 'fs'.
+import * as vscode from 'vscode';
 import * as path from 'path';
-imrt { Logger } from '../utils/lervice } from '../servicesating a webview panel
- */
-interface WebviewPanelOptions {
-	viewType: string;
-	title: string;
-	viewColumn?: vscode.ViewColumn;
-	preserveFocus?: boolean;
+import * as fs from 'fs';
+import { Logger } from '../utils/logger';
+import { ConfigService } from '../services/configService';
+import { AIResponsePanel, ResponseData, ResponseGenerator } from './aiResponsePanel';
+import { WebviewManager } from './webviewManager';
+import { ChatPanel } from './panels/chatPanel';
+import { SecurityDashboard } from './panels/securityDashboard';
+import { SuggestionPanel } from './panels/suggestionPanel';
+
+interface ViewOptions {
 	enableScripts?: boolean;
 	retainContextWhenHidden?: boolean;
 	localResourceRoots?: vscode.Uri[];
 }
 
+interface ViewState {
+	panel: vscode.WebviewPanel;
+	disposables: vscode.Disposable[];
+}
+
+interface WebviewContent {
+	html: string;
+	scripts: string[];
+	styles: string[];
+}
+
 /**
- * Manager for extension webviews
+ * Response update callback type
  */
-export class ViewManager {
+type ResponseUpdateCallback = (content: string) => void;
+
+/**
+ * Response content type
+ */
+interface ResponseContent {
+	content: string;
+	metadata?: Record<string, unknown>;
+}
+
+/**
+ * Manages all UI views for the extension
+ */
+export class ViewManager implements vscode.Disposable {
 	private readonly context: vscode.ExtensionContext;
 	private readonly logger: Logger;
 	private readonly configService: ConfigService;
-	private readonly webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
-	private readonly views: Map<string, vscode.WebviewView> = new Map();
-	private readonly templateCache: Map<string, string> = new Map();
+	private aiResponsePanel: AIResponsePanel | undefined;
+	private webviewManager: WebviewManager;
+	private readonly disposables: vscode.Disposable[] = [];
+	private readonly views: Map<string, ViewState> = new Map();
+	private readonly panels: Map<string, vscode.WebviewPanel> = new Map();
 
 	/**
 	 * Create a new view manager
@@ -97,296 +64,220 @@ export class ViewManager {
 	 * @param logger Logger instance
 	 * @param configService Configuration service
 	 */
-	constructor(context: vscode.ExtensionContext, logger: Logger, configService: ConfigService) {
+	constructor(
+		context: vscode.ExtensionContext,
+		logger: Logger,
+		configService: ConfigService
+	) {
 		this.context = context;
 		this.logger = logger;
 		this.configService = configService;
+
+		// Create the webview manager
+		this.webviewManager = new WebviewManager(context, logger, configService);
+
+		// Store in context for reuse
+		context.globalState.update('webviewManager', this.webviewManager);
+	}
+
+	/**
+	 * Show the AI response panel
+	 * @param id Panel ID
+	 * @param title Panel title
+	 * @param contentProvider Function to provide content
+	 * @returns The response content
+	 */
+	public async showAIResponsePanel(
+		id: string,
+		title: string,
+		contentProvider: (updateCallback: ResponseUpdateCallback) => Promise<ResponseContent>
+	): Promise<ResponseData> {
+		// Create a response panel if needed
+		if (!this.aiResponsePanel) {
+			this.aiResponsePanel = new AIResponsePanel(this.context, this.webviewManager, this.logger);
+		}
+
+		// Adapt the contentProvider to match the expected type
+		const adaptedProvider: ResponseGenerator = async (update) => {
+			const result = await contentProvider(update);
+			return {
+				content: result.content,
+				...(result.metadata || {})
+			};
+		};
+
+		// Show the response
+		const response = await this.aiResponsePanel.showResponse(id, title, adaptedProvider);
+		return {
+			content: response.content,
+			...Object.fromEntries(
+				Object.entries(response).filter(([key]) => key !== 'panel')
+			)
+		};
 	}
 
 	/**
 	 * Create a webview panel
-	 * @param viewType Unique identifier for the webview type
+	 * @param viewType View type identifier
 	 * @param title Panel title
-	 * @param viewColumn View column to show the panel in
-	 * @param options Additional panel options
-	 * @returns The created WebviewPanel
+	 * @param showOptions View column options
+	 * @param options Webview options
+	 * @returns The created webview panel
 	 */
 	public createWebviewPanel(
 		viewType: string,
 		title: string,
-		viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active,
-		options: Partial<WebviewPanelOptions> = {}
+		column: vscode.ViewColumn,
+		options?: ViewOptions
 	): vscode.WebviewPanel {
-		// Check if we already have a panel of this type
-		const existingPanel = this.webviewPanels.get(viewType);
-		if (existingPanel) {
-			// If we do, reveal it rather than creating a new one
-			existingPanel.reveal(viewColumn);
-			return existingPanel;
-		}
-
-		// Set default options
-		const defaultOptions = {
-			enableScripts: true,
-			retainContextWhenHidden: true,
-			localResourceRoots: [
-				vscode.Uri.file(path.join(this.context.extensionPath, 'resources'))
-			]
-		};
-
-		// Create the webview panel
 		const panel = vscode.window.createWebviewPanel(
 			viewType,
 			title,
+			column,
 			{
-				viewColumn,
-				preserveFocus: options.preserveFocus
-			},
-			{
-				...defaultOptions,
-				...options,
-				enableFindWidget: true,
+				enableScripts: options?.enableScripts ?? true,
+				retainContextWhenHidden: options?.retainContextWhenHidden ?? false,
+				localResourceRoots: options?.localResourceRoots
 			}
 		);
 
-		// Configure webview security
-		panel.webview.options = {
-			enableScripts: options.enableScripts ?? defaultOptions.enableScripts,
-			localResourceRoots: options.localResourceRoots ?? defaultOptions.localResourceRoots
-		};
+		const disposables: vscode.Disposable[] = [];
+		this.views.set(viewType, { panel, disposables });
 
-		// Store a reference to the panel
-		this.webviewPanels.set(viewType, panel);
-
-		// Handle panel disposal
+		// Add disposal handler
 		panel.onDidDispose(() => {
-			this.webviewPanels.delete(viewType);
-		});
+			disposables.forEach(d => d.dispose());
+			this.views.delete(viewType);
+		}, null, disposables);
 
 		return panel;
 	}
 
 	/**
-	 * Register a webview view provider
-	 * @param viewId View identifier
-	 * @param title View title
-	 * @returns View provider registration disposable
-	 */
-	public registerWebviewViewProvider(viewId: string, title: string): vscode.Disposable {
-		const provider = new class implements vscode.WebviewViewProvider {
-			private _view?: vscode.WebviewView;
-
-			resolveWebviewView(
-				webviewView: vscode.WebviewView,
-				_context: vscode.WebviewViewResolveContext,
-				_token: vscode.CancellationToken
-			): void | Thenable<void> {
-				// Store reference to the view
-				this._view = webviewView;
-
-				// Configure webview
-				webviewView.webview.options = {
-					enableScripts: true,
-// @ts-ignore: error TS2339: Property 'context' does not exist on type '(Anonymous class)'.
-// @ts-ignore: error TS2339: Property 'context' does not exist on type '(Anonymous class)'.
-// @ts-ignore: error TS2339: Property 'context' does not exist on type '(Anonymous class)'.
-// @ts-ignore: error TS2339: Property 'context' does not exist on type '(Anonymous class)'.
-// @ts-ignore: error TS2339: Property 'context' does not exist on type '(Anonymous class)'.
-// @ts-ignore: error TS2339: Property 'context' does not exist on type '(Anonymous class)'.
-					localResourceRoots: [
-						vscode.Uri.file(path.join(this.context.extensionPath, 'resources'))
-					]
-				};
-
-				// Set initial HTML content
-				webviewView.title = title;
-				webviewView.webview.html = this.getInitialHtml(title);
-
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-				// Store in the view manager
-				this.views.set(viewId, webviewView);
-
-				// Handle view disposal
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-// @ts-ignore: error TS2551: Property 'views' does not exist on type '(Anonymous class)'. Did you mean '_view'?
-				webviewView.onDidDispose(() => {
-					this.views.delete(viewId);
-				});
-			}
-
-			private getInitialHtml(title: string): string {
-				return `
-				<!DOCTYPE html>
-				<html lang="en">
-				<head>
-					<meta charset="UTF-8">
-					<meta name="viewport" content="width=device-width, initial-scale=1.0">
-					<title>${title}</title>
-				</head>
-				<body>
-					<h1>${title}</h1>
-					<p>View content loading...</p>
-				</body>
-				</html>`;
-			}
-		};
-
-		return vscode.window.registerWebviewViewProvider(viewId, provider);
-	}
-
-	/**
-	 * Load an HTML template
-	 * @param templateName Template name without extension
-	 * @returns Template content or empty string if template not found
-	 */
-	public loadHtmlTemplate(templateName: string): string {
-		// Check cache first
-		if (this.templateCache.has(templateName)) {
-			return this.templateCache.get(templateName)!;
-		}
-
-		try {
-			// Construct template path
-			const templatePath = path.join(
-				this.context.extensionPath,
-				'resources',
-				'templates',
-				`${templateName}.html`
-			);
-
-			// Read template file
-			const templateContent = fs.readFileSync(templatePath, 'utf8');
-
-			// Cache the template
-			this.templateCache.set(templateName, templateContent);
-
-			return templateContent;
-		} catch (error) {
-			this.logger.error(`Failed to load template '${templateName}': ${error instanceof Error ? error.message : String(error)}`);
-			return '';
-		}
-	}
-
-	/**
-	 * Create webview content from a template
-	 * @param webviewPanel Webview panel
-	 * @param templateContent HTML template content
-	 * @param data Data to inject into the template
-	 * @returns Processed HTML content
+	 * Create webview content for a panel
+	 * @param panel Webview panel
+	 * @param content Content configuration
 	 */
 	public createWebviewContent(
-		webviewPanel: vscode.WebviewPanel | vscode.WebviewView,
-		templateContent: string,
-		data: Record<string, any> = {}
-	): string {
-		const webview = 'webview' in webviewPanel ? webviewPanel.webview : webviewPanel;
+		panel: vscode.WebviewPanel,
+		content: WebviewContent
+	): void {
+		// Get the HTML content
+		let htmlContent = content.html;
 
-		// Create nonce for script security
-		const nonce = this.generateNonce();
+		// Process scripts
+		if (content.scripts && content.scripts.length > 0) {
+			const scriptTags = content.scripts.map(script => {
+				const scriptUri = this.webviewManager.getResourceUri(panel.webview, script);
+				return `<script src="${scriptUri}"></script>`;
+			}).join('\n');
 
-		// Get URIs for resources
-		const scriptUri = webview.asWebviewUri(
-			vscode.Uri.file(path.join(this.context.extensionPath, 'resources', 'scripts', 'webview.js'))
-		);
-
-		const cssUri = webview.asWebviewUri(
-			vscode.Uri.file(path.join(this.context.extensionPath, 'resources', 'styles', 'webview.css'))
-		);
-
-		// Prepare template variables
-		const templateData = {
-			...data,
-			nonce,
-			scriptUri: scriptUri.toString(),
-			cssUri: cssUri.toString()
-		};
-
-		// Replace template variables
-		let processedContent = templateContent;
-		for (const [key, value] of Object.entries(templateData)) {
-			// Skip null and undefined values
-			if (value === null || value === undefined) {
-				continue;
-			}
-
-			// Convert value to string if needed
-			const stringValue = typeof value === 'string' ? value : String(value);
-
-			// Replace all occurrences of the template variable
-			const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-			processedContent = processedContent.replace(regex, stringValue);
+			htmlContent = htmlContent.replace('</body>', `${scriptTags}\n</body>`);
 		}
 
-		// Add content security policy
-		const csp = [
-			`default-src 'none'`,
-			`style-src ${webview.cspSource} 'unsafe-inline'`,
-			`script-src 'nonce-${nonce}'`,
-			`img-src ${webview.cspSource} https: data:`,
-			`font-src ${webview.cspSource}`,
-			`connect-src https://api.openai.com https://api.anthropic.com https://api.mistralai.com`
-		].join('; ');
+		// Process styles
+		if (content.styles && content.styles.length > 0) {
+			const styleTags = content.styles.map(style => {
+				const styleUri = this.webviewManager.getResourceUri(panel.webview, style);
+				return `<link rel="stylesheet" href="${styleUri}">`;
+			}).join('\n');
 
-		const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
+			htmlContent = htmlContent.replace('</head>', `${styleTags}\n</head>`);
+		}
 
-		// Insert CSP meta tag after the first head tag
-		processedContent = processedContent.replace('<head>', `<head>\n  ${cspMeta}`);
-
-		return processedContent;
+		// Set the HTML content
+		panel.webview.html = htmlContent;
 	}
 
 	/**
-	 * Update webview content
-	 * @param viewType View type identifier
-	 * @param content New HTML content
-	 * @returns Whether update was successful
+	 * Show a notification with progress
+	 * @param title Notification title
+	 * @param task Task to perform
+	 * @returns Result of the task
 	 */
-	public updateWebviewContent(viewType: string, content: string): boolean {
-		// Look for panel first
-		const panel = this.webviewPanels.get(viewType);
+	public async showProgressNotification<T>(
+		title: string,
+		task: (progress: vscode.Progress<{ message?: string; increment?: number }>, token: vscode.CancellationToken) => Promise<T>
+	): Promise<T> {
+		return vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title,
+				cancellable: true
+			},
+			task
+		);
+	}
+
+	/**
+	 * Show a notification
+	 * @param message Notification message
+	 * @param type Notification type
+	 */
+	public showNotification(
+		message: string,
+		type: 'info' | 'warning' | 'error' = 'info'
+	): void {
+		switch (type) {
+			case 'info':
+				vscode.window.showInformationMessage(message);
+				break;
+			case 'warning':
+				vscode.window.showWarningMessage(message);
+				break;
+			case 'error':
+				vscode.window.showErrorMessage(message);
+				break;
+		}
+	}
+
+	/**
+	 * Show chat panel
+	 */
+	public async showChatPanel(): Promise<void> {
+		let panel = this.panels.get('chat');
 		if (panel) {
-			panel.webview.html = content;
-			return true;
+			panel.reveal();
+			return;
 		}
 
-		// Look for view if panel not found
-		const view = this.views.get(viewType);
-		if (view) {
-			view.webview.html = content;
-			return true;
-		}
+		panel = await ChatPanel.create(this.context, this.webviewManager, this.logger);
+		this.panels.set('chat', panel);
 
-		return false;
+		panel.onDidDispose(() => {
+			this.panels.delete('chat');
+		});
 	}
 
 	/**
-	 * Generate a secure nonce
-	 * @returns Cryptographically secure nonce
+	 * Show security dashboard
 	 */
-	private generateNonce(): string {
-		let text = '';
-		const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-		for (let i = 0; i < 32; i++) {
-			text += possible.charAt(Math.floor(Math.random() * possible.length));
+	public async showSecurityDashboard(): Promise<void> {
+		let panel = this.panels.get('security');
+		if (panel) {
+			panel.reveal();
+			return;
 		}
-		return text;
+
+		panel = await SecurityDashboard.create(this.context, this.webviewManager, this.logger);
+		this.panels.set('security', panel);
+
+		panel.onDidDispose(() => {
+			this.panels.delete('security');
+		});
 	}
 
 	/**
-	 * Dispose of all webviews
+	 * Dispose of resources
 	 */
 	public dispose(): void {
-		// Dispose all webview panels
-		for (const panel of this.webviewPanels.values()) {
-			panel.dispose();
+		if (this.aiResponsePanel) {
+			this.aiResponsePanel.dispose();
 		}
-		this.webviewPanels.clear();
 
-		// We don't dispose views as they're managed by VS Code
-		this.views.clear();
+		this.webviewManager.dispose();
+		this.disposables.forEach(d => d.dispose());
+		this.panels.forEach(panel => panel.dispose());
+		this.panels.clear();
 	}
 }

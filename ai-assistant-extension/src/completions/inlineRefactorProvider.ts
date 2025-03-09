@@ -11,6 +11,22 @@ import { Logger } from '../utils/logger';
 import { ConfigService } from '../services/configService';
 import { ModelCapability } from '../ai/providers/baseProvider';
 
+interface RefactorSuggestion {
+	code: string;
+	description?: string;
+	confidence: number;
+}
+
+interface GenerationResult {
+	content: string;
+	metadata?: {
+		model?: string;
+		promptTokens?: number;
+		completionTokens?: number;
+		totalTokens?: number;
+	};
+}
+
 /**
  * Provider for inline refactoring suggestions
  */
@@ -53,12 +69,6 @@ export class InlineRefactorProvider implements vscode.Disposable {
 				provideInlineCompletionItems: async (document, position, context, token) => {
 					return this.provideInlineCompletions(document, position, context, token);
 				}
-// @ts-ignore: error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
-// @ts-ignore: error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
-// @ts-ignore: error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
-// @ts-ignore: error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
-// @ts-ignore: error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
-// @ts-ignore: error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
 			},
 			...this.getTriggerCharacters()
 		);
@@ -116,15 +126,8 @@ export class InlineRefactorProvider implements vscode.Disposable {
 			const response = await this.modelManager.generateCompletion(prompt, {
 				capability: ModelCapability.Refactoring,
 				temperature: 0.1, // Lower temperature for more deterministic results
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'withFallbacks' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'withFallbacks' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'withFallbacks' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'withFallbacks' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'withFallbacks' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'withFallbacks' does not exist in type 'ModelRequestOptions'.
-				maxTokens: 200,    // Limit token generation
-				withFallbacks: true // Use fallbacks if primary model fails
-			});
+				maxTokens: 200    // Limit token generation
+			}) as GenerationResult;
 
 			if (!response.content.trim()) {
 				return null;
@@ -248,7 +251,6 @@ Only provide the code to insert at the cursor position. Keep it brief and focuse
 		context: vscode.InlineCompletionContext
 	): boolean {
 		// Don't trigger if it's an explicit trigger (user requested it)
-// @ts-ignore: error TS2339: Property 'Explicit' does not exist on type 'typeof InlineCompletionTriggerKind'.
 		// We only want to show when automatic triggering is enabled
 		if (context.triggerKind === vscode.InlineCompletionTriggerKind.Explicit) {
 			return this.configService.get<boolean>('inlineRefactoring.triggerOnExplicit', true);

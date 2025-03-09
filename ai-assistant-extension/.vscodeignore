@@ -9,6 +9,7 @@ webpack.config.js
 tsconfig.json
 **/*.map
 **/*.ts
+node_modules
 node_modules/**
 out/**
 .github/**

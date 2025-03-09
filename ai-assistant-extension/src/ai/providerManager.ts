@@ -4,6 +4,30 @@ import { XAIProvider } from './providers/xaiProvider';
 import { QwenProvider } from './providers/qwenProvider';
 import { ConfigService } from '../services/configService';
 import { Logger } from '../utils/logger';
+import { BaseProvider } from './providers/baseProvider';
+
+interface ProviderConfig {
+	enabled: boolean;
+	config: Record<string, unknown>;
+}
+
+interface ProviderManagerConfig {
+	providers: Record<string, ProviderConfig>;
+}
+
+interface ProviderRegistry {
+	[providerId: string]: {
+		provider: BaseModelProvider;
+		isInitialized: boolean;
+		lastError?: Error;
+	};
+}
+
+interface ProviderState {
+	provider: BaseModelProvider;
+	isInitialized: boolean;
+	lastError?: Error;
+}
 
 /**
  * Manages AI model providers
@@ -11,17 +35,20 @@ import { Logger } from '../utils/logger';
 export class ProviderManager implements vscode.Disposable {
 	private readonly configService: ConfigService;
 	private readonly logger: Logger;
-	private providers: Map<string, BaseModelProvider> = new Map();
+	private providers: Map<string, ProviderState> = new Map();
 	private activeProviderId: string | null = null;
+	private config: ProviderManagerConfig;
+	private readonly _onProviderStateChanged = new vscode.EventEmitter<BaseModelProvider>();
 
 	/**
 	 * Create a new provider manager
 	 * @param configService Configuration service
 	 * @param logger Logger
 	 */
-	constructor(configService: ConfigService, logger: Logger) {
+	constructor(configService: ConfigService, logger: Logger, config: ProviderManagerConfig) {
 		this.configService = configService;
 		this.logger = logger;
+		this.config = config;
 	}
 
 	/**
@@ -34,14 +61,14 @@ export class ProviderManager implements vscode.Disposable {
 			// Initialize XAI provider
 			const xaiProvider = new XAIProvider(this.configService, this.logger);
 			if (await xaiProvider.initialize()) {
-				this.providers.set(xaiProvider.id, xaiProvider);
+				this.providers.set(xaiProvider.id, { provider: xaiProvider, isInitialized: true });
 				this.logger.info(`Provider ${xaiProvider.name} initialized`);
 			}
 
 			// Initialize Qwen provider
 			const qwenProvider = new QwenProvider(this.configService, this.logger);
 			if (await qwenProvider.initialize()) {
-				this.providers.set(qwenProvider.id, qwenProvider);
+				this.providers.set(qwenProvider.id, { provider: qwenProvider, isInitialized: true });
 				this.logger.info(`Provider ${qwenProvider.name} initialized`);
 			}
 
@@ -70,7 +97,7 @@ export class ProviderManager implements vscode.Disposable {
 	 * @returns Array of available providers
 	 */
 	public getAvailableProviders(): BaseModelProvider[] {
-		return Array.from(this.providers.values());
+		return Array.from(this.providers.values()).map(state => state.provider);
 	}
 
 	/**
@@ -81,7 +108,8 @@ export class ProviderManager implements vscode.Disposable {
 		if (!this.activeProviderId) {
 			return null;
 		}
-		return this.providers.get(this.activeProviderId) || null;
+		const state = this.providers.get(this.activeProviderId);
+		return state ? state.provider : null;
 	}
 
 	/**
@@ -117,10 +145,10 @@ export class ProviderManager implements vscode.Disposable {
 		}
 
 		// Try all providers
-		for (const provider of this.providers.values()) {
-			const modelId = await provider.getDefaultModelForCapability(capability);
+		for (const state of this.providers.values()) {
+			const modelId = await state.provider.getDefaultModelForCapability(capability);
 			if (modelId) {
-				return provider;
+				return state.provider;
 			}
 		}
 
@@ -142,17 +170,51 @@ export class ProviderManager implements vscode.Disposable {
 	 * @returns Provider or null if not found
 	 */
 	public getProvider(providerId: string): BaseModelProvider | null {
-		return this.providers.get(providerId) || null;
+		const state = this.providers.get(providerId);
+		return state ? state.provider : null;
 	}
 
 	/**
 	 * Dispose of all providers
 	 */
 	public dispose(): void {
-		for (const provider of this.providers.values()) {
-			provider.dispose();
+		for (const state of this.providers.values()) {
+			state.provider.dispose();
 		}
 		this.providers.clear();
 		this.activeProviderId = null;
+	}
+
+	/**
+	 * Get provider manager
+	 * @returns Provider manager instance
+	 */
+	public getProviderManager(): ProviderManager {
+		return this;
+	}
+
+	public registerProvider(id: string, provider: BaseProvider): void {
+		// ...existing code...
+	}
+
+	public async initializeProvider(providerId: string): Promise<boolean> {
+		const state = this.providers.get(providerId);
+		if (!state) {
+			return false;
+		}
+
+		try {
+			await state.provider.initialize();
+			state.isInitialized = true;
+			this._onProviderStateChanged.fire(state.provider);
+			return true;
+		} catch (error) {
+			state.lastError = error instanceof Error ? error : new Error(String(error));
+			return false;
+		}
+	}
+
+	public getProvider(id: string): BaseProvider | undefined {
+		// ...existing code...
 	}
 }

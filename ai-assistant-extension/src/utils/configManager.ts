@@ -76,4 +76,12 @@ export class ConfigManager {
 		// Refresh local config
 		this.refreshConfig();
 	}
+
+	/**
+	 * Get configuration by key
+	 * @param key Configuration key
+	 */
+	public getConfigByKey(key: string) {
+		// Implementation for getting config by key
+	}
 }

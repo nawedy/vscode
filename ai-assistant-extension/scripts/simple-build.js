@@ -3,7 +3,7 @@
 /**
  * Simple build script for AI Assistant Extension
  * This script bypasses webpack and uses direct TypeScript compilation
- * and vsce packaging for a more reliable build process.
+ * for a more reliable build process.
  */
 
 const { execSync } = require('child_process');
@@ -16,6 +16,10 @@ const distDir = path.join(extensionDir, 'dist');
 const outDir = path.join(extensionDir, 'out');
 
 console.log('Starting simple build process...');
+
+function simpleBuild() {
+	// Implementation for simple build
+}
 
 try {
 	// Ensure output directories exist
@@ -36,29 +40,31 @@ try {
 
 	// Step 2: Copy compiled files to dist directory
 	console.log('Copying files to dist directory...');
-	execSync('cp -R ./out/* ./dist/', {
-		cwd: extensionDir,
-		stdio: 'inherit'
-	});
+	if (process.platform === 'win32') {
+		execSync('xcopy /E /I /Y out\\* dist\\', { cwd: extensionDir, stdio: 'inherit' });
+	} else {
+		execSync('cp -R ./out/* ./dist/', { cwd: extensionDir, stdio: 'inherit' });
+	}
 	console.log('Files copied successfully');
 
-	// Step 3: Create extension package
-	console.log('Creating extension package...');
-	execSync('npx vsce package --no-dependencies', {
-		cwd: extensionDir,
-		stdio: 'inherit'
-	});
-	console.log('Extension package created successfully');
+	// Step 3: Copy any necessary media files
+	const mediaDir = path.join(extensionDir, 'media');
+	const distMediaDir = path.join(distDir, 'media');
 
-	// Find and report the created .vsix file
-	const files = fs.readdirSync(extensionDir);
-	const vsixFiles = files.filter(f => f.endsWith('.vsix'));
-	if (vsixFiles.length > 0) {
-		console.log(`\n✅ Build successful! Package created: ${vsixFiles[0]}`);
-		console.log(`Full path: ${path.join(extensionDir, vsixFiles[0])}`);
-	} else {
-		console.log('⚠️ Build completed but could not find .vsix package file');
+	if (fs.existsSync(mediaDir)) {
+		console.log('Copying media files...');
+		if (!fs.existsSync(distMediaDir)) {
+			fs.mkdirSync(distMediaDir, { recursive: true });
+		}
+
+		if (process.platform === 'win32') {
+			execSync('xcopy /E /I /Y media\\* dist\\media\\', { cwd: extensionDir, stdio: 'inherit' });
+		} else {
+			execSync('cp -R ./media/* ./dist/media/', { cwd: extensionDir, stdio: 'inherit' });
+		}
 	}
+
+	console.log('\n✅ Build successful!');
 
 } catch (error) {
 	console.error(`\n❌ Build failed: ${error.message}`);

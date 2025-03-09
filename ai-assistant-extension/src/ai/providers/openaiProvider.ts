@@ -2,38 +2,86 @@
  * OpenAI Provider
  *
  * Provider implementation for OpenAI API integration.
- * Supports various OpenAI models for different capabilities.
+ * Supports GPT family models for various AI capabilities.
  */
 
 import * as vscode from 'vscode';
 import axios, { AxiosInstance } from 'axios';
-import {
-	BaseModelProvider,
-	ModelCapability,
-	ModelInfo,
-	ModelProviderError,
-	ModelRequestOptions,
-	ModelResponse,
-	StreamingResponseHandler
-} from './baseProvider';
+import { BaseModelProvider, ModelCapability, ModelInfo, ModelProviderError, ModelRequestOptions, ModelResponse, StreamingResponseHandler } from './baseProvider';
 import { ConfigService } from '../../services/configService';
 import { Logger } from '../../utils/logger';
 
 /**
- * OpenAI provider for LLM models
-// @ts-ignore: error TS2415: Class 'OpenAIProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'OpenAIProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'OpenAIProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'OpenAIProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'OpenAIProvider' incorrectly extends base class 'BaseModelProvider'.
-// @ts-ignore: error TS2415: Class 'OpenAIProvider' incorrectly extends base class 'BaseModelProvider'.
+ * OpenAI API message format
+ */
+interface OpenAIMessage {
+	role: 'system' | 'user' | 'assistant' | 'function';
+	content: string;
+	name?: string;
+}
+
+/**
+ * OpenAI completion request parameters
+ */
+interface OpenAICompletionRequest {
+	model: string;
+	messages: OpenAIMessage[];
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
+	stream?: boolean;
+	stop?: string[];
+	presence_penalty?: number;
+	frequency_penalty?: number;
+}
+
+/**
+ * OpenAI API response format
+ */
+interface OpenAICompletionResponse {
+	id: string;
+	object: string;
+	created: number;
+	model: string;
+	choices: {
+		index: number;
+		message: OpenAIMessage;
+		finish_reason: string;
+	}[];
+	usage: {
+		prompt_tokens: number;
+		completion_tokens: number;
+		total_tokens: number;
+	};
+}
+
+/**
+ * OpenAI stream chunk format
+ */
+interface OpenAIStreamChunk {
+	id: string;
+	object: string;
+	created: number;
+	model: string;
+	choices: {
+		index: number;
+		delta: {
+			role?: string;
+			content?: string;
+		};
+		finish_reason: string | null;
+	}[];
+}
+
+/**
+ * Provider for OpenAI models
  */
 export class OpenAIProvider extends BaseModelProvider {
 	private readonly configService: ConfigService;
-	private readonly logger: Logger;
 	private apiKey: string = '';
 	private client: AxiosInstance | null = null;
 	private baseUrl: string = 'https://api.openai.com/v1';
+	private orgId: string = '';
 
 	/**
 	 * Create a new OpenAI provider
@@ -41,27 +89,28 @@ export class OpenAIProvider extends BaseModelProvider {
 	 * @param logger Logger instance
 	 */
 	constructor(configService: ConfigService, logger: Logger) {
-		super('openai', 'OpenAI');
+		super('openai', 'OpenAI', configService, logger);
 		this.configService = configService;
-		this.logger = logger;
 	}
 
 	/**
-	 * Initialize the OpenAI provider
+	 * Initialize the provider
 	 * @returns Whether initialization was successful
 	 */
-	async initialize(): Promise<boolean> {
+	public async initialize(): Promise<boolean> {
 		try {
 			this.logger.info('Initializing OpenAI provider');
 
-			// Get API key
+			// Get API key and org ID from secure storage
 			this.apiKey = await this.configService.getSecret('openai.apiKey') || '';
+			this.orgId = await this.configService.getSecret('openai.orgId') || '';
+
 			if (!this.apiKey) {
 				this.logger.warn('OpenAI API key not found');
 				return false;
 			}
 
-			// Get base URL (for Azure OpenAI or other endpoints)
+			// Get base URL (configurable for Azure OpenAI)
 			this.baseUrl = this.configService.get<string>(
 				'providers.openai.baseUrl',
 				'https://api.openai.com/v1'
@@ -72,9 +121,10 @@ export class OpenAIProvider extends BaseModelProvider {
 				baseURL: this.baseUrl,
 				headers: {
 					'Authorization': `Bearer ${this.apiKey}`,
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					...(this.orgId ? { 'OpenAI-Organization': this.orgId } : {})
 				},
-				timeout: this.configService.get<number>('providers.openai.timeout', 30000)
+				timeout: 60000
 			});
 
 			// Load available models
@@ -90,17 +140,18 @@ export class OpenAIProvider extends BaseModelProvider {
 	}
 
 	/**
-	 * Load available models
+	 * Load available models from OpenAI
 	 */
 	private async loadModels(): Promise<void> {
 		try {
-			// Define standard models
+			// Define standard OpenAI models
 			const standardModels: ModelInfo[] = [
 				{
 					id: 'gpt-4o',
 					name: 'GPT-4o',
 					contextLength: 128000,
 					capabilities: [
+						ModelCapability.ChatCompletion,
 						ModelCapability.CodeGeneration,
 						ModelCapability.CodeCompletion,
 						ModelCapability.Refactoring,
@@ -116,6 +167,7 @@ export class OpenAIProvider extends BaseModelProvider {
 					name: 'GPT-4 Turbo',
 					contextLength: 128000,
 					capabilities: [
+						ModelCapability.ChatCompletion,
 						ModelCapability.CodeGeneration,
 						ModelCapability.CodeCompletion,
 						ModelCapability.Refactoring,
@@ -131,13 +183,13 @@ export class OpenAIProvider extends BaseModelProvider {
 					name: 'GPT-4',
 					contextLength: 8192,
 					capabilities: [
+						ModelCapability.ChatCompletion,
 						ModelCapability.CodeGeneration,
 						ModelCapability.CodeCompletion,
 						ModelCapability.Refactoring,
 						ModelCapability.SecurityAnalysis,
 						ModelCapability.Testing,
-						ModelCapability.Explanation,
-						ModelCapability.Planning
+						ModelCapability.Explanation
 					],
 					available: true
 				},
@@ -146,9 +198,8 @@ export class OpenAIProvider extends BaseModelProvider {
 					name: 'GPT-3.5 Turbo',
 					contextLength: 16385,
 					capabilities: [
-						ModelCapability.CodeGeneration,
+						ModelCapability.ChatCompletion,
 						ModelCapability.CodeCompletion,
-						ModelCapability.Refactoring,
 						ModelCapability.Explanation
 					],
 					available: true
@@ -172,18 +223,15 @@ export class OpenAIProvider extends BaseModelProvider {
 							continue;
 						}
 
-						// Add model if it's likely to be useful for code
-						if (model.id.includes('gpt-4') ||
-							model.id.includes('gpt-3.5') ||
-							model.id.includes('codex') ||
-							model.id.includes('code')) {
-
+						// Only add GPT models
+						if (model.id.includes('gpt')) {
 							const capabilities = this.inferModelCapabilities(model.id);
+							const contextLength = this.getContextLengthForModel(model.id);
 
 							this.models.set(model.id, {
 								id: model.id,
 								name: model.id,
-								contextLength: this.getContextLengthForModel(model.id),
+								contextLength,
 								capabilities,
 								available: true
 							});
@@ -207,86 +255,72 @@ export class OpenAIProvider extends BaseModelProvider {
 	 * @param options Request options
 	 * @returns Model response
 	 */
-	async generateCompletion(prompt: string, options?: ModelRequestOptions): Promise<ModelResponse> {
+	public async generateCompletion(prompt: string, options?: ModelRequestOptions): Promise<ModelResponse> {
 		if (!this.isReady || !this.client) {
 			throw new ModelProviderError('OpenAI provider not initialized', this.id);
 		}
 
-		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(ModelCapability.CodeGeneration);
+		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(options?.capability || ModelCapability.ChatCompletion);
 
 		if (!modelId) {
-			throw new ModelProviderError('No suitable model found for generation', this.id);
+			throw new ModelProviderError('No suitable model found for completion', this.id);
 		}
 
 		try {
-			// Use chat API for modern models
-			if (modelId.includes('gpt-')) {
-				const response = await this.client.post('/chat/completions', {
-					model: modelId,
-					messages: [{
-						role: 'user',
-						content: prompt
-					}],
-					temperature: options?.temperature ?? 0.3,
-					top_p: options?.topP ?? 0.95,
-					max_tokens: options?.maxTokens ?? 2048,
-					stop: options?.stopSequences,
-					stream: false
+			// Prepare messages
+			const messages: OpenAIMessage[] = [];
+
+			// Add system prompt if provided
+			if (options?.systemPrompt) {
+				messages.push({
+					role: 'system',
+					content: options.systemPrompt
 				});
-
-				const content = response.data.choices[0]?.message?.content || '';
-
-				return {
-					content,
-					promptTokens: response.data.usage?.prompt_tokens || 0,
-					completionTokens: response.data.usage?.completion_tokens || 0,
-					totalTokens: response.data.usage?.total_tokens || 0,
-					metadata: {
-						model: modelId,
-						finishReason: response.data.choices[0]?.finish_reason || 'stop'
-					}
-				};
-			} else {
-				// Use completions API for older models
-				const response = await this.client.post('/completions', {
-					model: modelId,
-					prompt,
-					temperature: options?.temperature ?? 0.3,
-					top_p: options?.topP ?? 0.95,
-					max_tokens: options?.maxTokens ?? 2048,
-					stop: options?.stopSequences,
-					stream: false
-				});
-
-				const content = response.data.choices[0]?.text || '';
-
-				return {
-					content,
-					promptTokens: response.data.usage?.prompt_tokens || 0,
-					completionTokens: response.data.usage?.completion_tokens || 0,
-					totalTokens: response.data.usage?.total_tokens || 0,
-					metadata: {
-						model: modelId,
-						finishReason: response.data.choices[0]?.finish_reason || 'stop'
-					}
-				};
 			}
+
+			// Add user prompt
+			messages.push({
+				role: 'user',
+				content: prompt
+			});
+
+			// Prepare request
+			const request: OpenAICompletionRequest = {
+				model: modelId,
+				messages,
+				temperature: options?.temperature ?? 0.7,
+				top_p: options?.topP ?? 1,
+				max_tokens: options?.maxTokens,
+				stop: options?.stopSequences,
+				stream: false,
+				presence_penalty: options?.presencePenalty,
+				frequency_penalty: options?.frequencyPenalty
+			};
+
+			const response = await this.client.post<OpenAICompletionResponse>('/chat/completions', request);
+			const content = response.data.choices[0]?.message?.content || '';
+
+			return {
+				content,
+				promptTokens: response.data.usage?.prompt_tokens || 0,
+				completionTokens: response.data.usage?.completion_tokens || 0,
+				totalTokens: response.data.usage?.total_tokens || 0,
+				metadata: {
+					model: modelId,
+					finishReason: response.data.choices[0]?.finish_reason || 'stop'
+				}
+			};
 		} catch (error) {
-			if (axios.isAxiosError(error)) {
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
+			if (axios.isAxiosError(error) && error.response?.data) {
+				const responseData = error.response.data as { error?: { message?: string } };
 				throw new ModelProviderError(
-					`OpenAI generation failed: ${error.response?.data?.error?.message || error.message}`,
+					`OpenAI request failed: ${responseData.error?.message || error.message}`,
 					this.id,
 					modelId,
 					String(error.response?.status || 'NETWORK_ERROR')
 				);
 			}
-			throw new ModelProviderError(`OpenAI generation failed: ${error instanceof Error ? error.message : String(error)}`, this.id, modelId);
+			throw new ModelProviderError(`OpenAI request failed: ${error instanceof Error ? error.message : String(error)}`, this.id, modelId);
 		}
 	}
 
@@ -296,7 +330,7 @@ export class OpenAIProvider extends BaseModelProvider {
 	 * @param handler Streaming handler
 	 * @param options Request options
 	 */
-	async generateCompletionStream(
+	public async generateCompletionStream(
 		prompt: string,
 		handler: StreamingResponseHandler,
 		options?: ModelRequestOptions
@@ -305,166 +339,111 @@ export class OpenAIProvider extends BaseModelProvider {
 			throw new ModelProviderError('OpenAI provider not initialized', this.id);
 		}
 
-		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(ModelCapability.CodeGeneration);
+		const modelId = options?.modelParams?.modelId as string || await this.getDefaultModelForCapability(options?.capability || ModelCapability.ChatCompletion);
 
 		if (!modelId) {
-			throw new ModelProviderError('No suitable model found for generation', this.id);
+			throw new ModelProviderError('No suitable model found for streaming', this.id);
 		}
 
 		try {
-			if (modelId.includes('gpt-')) {
-				// Use chat API with streaming for modern models
-				const response = await this.client.post('/chat/completions', {
-					model: modelId,
-					messages: [{
-						role: 'user',
-						content: prompt
-					}],
-					temperature: options?.temperature ?? 0.3,
-					top_p: options?.topP ?? 0.95,
-					max_tokens: options?.maxTokens ?? 2048,
-					stop: options?.stopSequences,
-					stream: true
-				}, {
-					responseType: 'stream'
-				});
+			// Prepare messages
+			const messages: OpenAIMessage[] = [];
 
-				let accumulatedText = '';
-				let finishReason = '';
-
-				response.data.on('data', (chunk: Buffer) => {
-					try {
-						const lines = chunk.toString().split('\n');
-
-						for (const line of lines) {
-							if (!line.trim() || line.trim() === 'data: [DONE]') {
-								continue;
-							}
-
-							const dataMatch = line.match(/^data: (.+)$/);
-							if (!dataMatch) {
-								continue;
-							}
-
-							const data = JSON.parse(dataMatch[1]);
-							const content = data.choices[0]?.delta?.content || '';
-
-							if (content) {
-								accumulatedText += content;
-								handler.onContent(content);
-							}
-
-							if (data.choices[0]?.finish_reason) {
-								finishReason = data.choices[0].finish_reason;
-							}
-						}
-					} catch (error) {
-						// If we can't parse, ignore this chunk
-						this.logger.debug(`Failed to parse streaming chunk: ${error instanceof Error ? error.message : String(error)}`);
-					}
-				});
-
-				response.data.on('error', (error: Error) => {
-					handler.onError(new ModelProviderError(`Stream error: ${error.message}`, this.id, modelId));
-				});
-
-				response.data.on('end', () => {
-					// Estimate token counts
-					const promptTokens = Math.ceil(prompt.length / 4);
-					const completionTokens = Math.ceil(accumulatedText.length / 4);
-
-					handler.onComplete({
-						content: accumulatedText,
-						promptTokens,
-						completionTokens,
-						totalTokens: promptTokens + completionTokens,
-						metadata: {
-							model: modelId,
-							finishReason: finishReason || 'stop'
-						}
-					});
-				});
-			} else {
-				// Use completions API with streaming for older models
-				const response = await this.client.post('/completions', {
-					model: modelId,
-					prompt,
-					temperature: options?.temperature ?? 0.3,
-					top_p: options?.topP ?? 0.95,
-					max_tokens: options?.maxTokens ?? 2048,
-					stop: options?.stopSequences,
-					stream: true
-				}, {
-					responseType: 'stream'
-				});
-
-				let accumulatedText = '';
-				let finishReason = '';
-
-				response.data.on('data', (chunk: Buffer) => {
-					try {
-						const lines = chunk.toString().split('\n');
-
-						for (const line of lines) {
-							if (!line.trim() || line.trim() === 'data: [DONE]') {
-								continue;
-							}
-
-							const dataMatch = line.match(/^data: (.+)$/);
-							if (!dataMatch) {
-								continue;
-							}
-
-							const data = JSON.parse(dataMatch[1]);
-							const content = data.choices[0]?.text || '';
-
-							if (content) {
-								accumulatedText += content;
-								handler.onContent(content);
-							}
-
-							if (data.choices[0]?.finish_reason) {
-								finishReason = data.choices[0].finish_reason;
-							}
-						}
-					} catch (error) {
-						// If we can't parse, ignore this chunk
-						this.logger.debug(`Failed to parse streaming chunk: ${error instanceof Error ? error.message : String(error)}`);
-					}
-				});
-
-				response.data.on('error', (error: Error) => {
-					handler.onError(new ModelProviderError(`Stream error: ${error.message}`, this.id, modelId));
-				});
-
-				response.data.on('end', () => {
-					// Estimate token counts
-					const promptTokens = Math.ceil(prompt.length / 4);
-					const completionTokens = Math.ceil(accumulatedText.length / 4);
-
-					handler.onComplete({
-						content: accumulatedText,
-						promptTokens,
-						completionTokens,
-						totalTokens: promptTokens + completionTokens,
-						metadata: {
-							model: modelId,
-							finishReason: finishReason || 'stop'
-						}
-					});
+			// Add system prompt if provided
+			if (options?.systemPrompt) {
+				messages.push({
+					role: 'system',
+					content: options.systemPrompt
 				});
 			}
+
+			// Add user prompt
+			messages.push({
+				role: 'user',
+				content: prompt
+			});
+
+			// Prepare request
+			const request: OpenAICompletionRequest = {
+				model: modelId,
+				messages,
+				temperature: options?.temperature ?? 0.7,
+				top_p: options?.topP ?? 1,
+				max_tokens: options?.maxTokens,
+				stop: options?.stopSequences,
+				stream: true,
+				presence_penalty: options?.presencePenalty,
+				frequency_penalty: options?.frequencyPenalty
+			};
+
+			const response = await this.client.post('/chat/completions', request, {
+				responseType: 'stream'
+			});
+
+			let accumulatedContent = '';
+			let finishReason = '';
+			let promptTokens = 0;
+			let completionTokens = 0;
+
+			response.data.on('data', (chunk: Buffer) => {
+				try {
+					const lines = chunk.toString().split('\n');
+
+					for (const line of lines) {
+						if (!line.trim() || line.trim() === 'data: [DONE]') {
+							continue;
+						}
+
+						const dataMatch = line.match(/^data: (.+)$/);
+						if (!dataMatch) {
+							continue;
+						}
+
+						const data = JSON.parse(dataMatch[1]) as OpenAIStreamChunk;
+						const content = data.choices[0]?.delta?.content || '';
+
+						if (content) {
+							accumulatedContent += content;
+							handler.onContent(content);
+						}
+
+						if (data.choices[0]?.finish_reason) {
+							finishReason = data.choices[0].finish_reason;
+						}
+					}
+				} catch (error) {
+					// If we can't parse, ignore this chunk
+					this.logger.debug(`Failed to parse streaming chunk: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			});
+
+			response.data.on('error', (error: Error) => {
+				handler.onError(new ModelProviderError(`Stream error: ${error.message}`, this.id, modelId));
+			});
+
+			response.data.on('end', () => {
+				// Estimate token counts until we get a better way
+				// OpenAI doesn't provide token counts in streaming mode
+				promptTokens = this.estimateTokenCount(prompt);
+				completionTokens = this.estimateTokenCount(accumulatedContent);
+
+				handler.onComplete({
+					content: accumulatedContent,
+					promptTokens,
+					completionTokens,
+					totalTokens: promptTokens + completionTokens,
+					metadata: {
+						model: modelId,
+						finishReason: finishReason || 'stop'
+					}
+				});
+			});
 		} catch (error) {
-			if (axios.isAxiosError(error)) {
+			if (axios.isAxiosError(error) && error.response?.data) {
+				const responseData = error.response.data as { error?: { message?: string } };
 				handler.onError(
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
-// @ts-ignore: error TS2339: Property 'error' does not exist on type 'unknown'.
 					new ModelProviderError(
-						`OpenAI streaming failed: ${error.response?.data?.error?.message || error.message}`,
+						`OpenAI streaming failed: ${responseData.error?.message || error.message}`,
 						this.id,
 						modelId,
 						String(error.response?.status || 'NETWORK_ERROR')
@@ -487,13 +466,17 @@ export class OpenAIProvider extends BaseModelProvider {
 	 * @param text The text to count tokens for
 	 * @returns Token count
 	 */
-	async countTokens(text: string): Promise<number> {
-		if (!this.isReady || !this.client) {
-			throw new ModelProviderError('OpenAI provider not initialized', this.id);
-		}
+	public async countTokens(text: string): Promise<number> {
+		return this.estimateTokenCount(text);
+	}
 
-		// OpenAI doesn't have a specific token counting API
-		// We use a heuristic based on characters
+	/**
+	 * Estimate token count based on text length
+	 * @param text Text to estimate tokens for
+	 * @returns Estimated token count
+	 */
+	private estimateTokenCount(text: string): number {
+		// Roughly 4 chars per token for English text
 		return Math.ceil(text.length / 4);
 	}
 
@@ -506,26 +489,27 @@ export class OpenAIProvider extends BaseModelProvider {
 		const capabilities: ModelCapability[] = [];
 		const lowerModelId = modelId.toLowerCase();
 
-		// All OpenAI models support basic code completion
-		capabilities.push(ModelCapability.CodeCompletion);
+		// All OpenAI models support basic chat completion
+		capabilities.push(ModelCapability.ChatCompletion);
 
 		if (lowerModelId.includes('gpt-4')) {
-			// GPT-4 models support all capabilities
+			// GPT-4 models have more capabilities
 			capabilities.push(ModelCapability.CodeGeneration);
+			capabilities.push(ModelCapability.CodeCompletion);
 			capabilities.push(ModelCapability.Refactoring);
 			capabilities.push(ModelCapability.SecurityAnalysis);
 			capabilities.push(ModelCapability.Testing);
 			capabilities.push(ModelCapability.Explanation);
 			capabilities.push(ModelCapability.Planning);
 		} else if (lowerModelId.includes('gpt-3.5')) {
-			// GPT-3.5 models support most capabilities
-			capabilities.push(ModelCapability.CodeGeneration);
-			capabilities.push(ModelCapability.Refactoring);
+			// GPT-3.5 models have fewer capabilities
+			capabilities.push(ModelCapability.CodeCompletion);
 			capabilities.push(ModelCapability.Explanation);
-		} else if (lowerModelId.includes('codex') || lowerModelId.includes('code')) {
-			// Codex models are specialized for code
-			capabilities.push(ModelCapability.CodeGeneration);
-			capabilities.push(ModelCapability.Refactoring);
+
+			// Some GPT-3.5 models can handle code generation
+			if (lowerModelId.includes('turbo')) {
+				capabilities.push(ModelCapability.CodeGeneration);
+			}
 		}
 
 		return capabilities;
@@ -539,24 +523,66 @@ export class OpenAIProvider extends BaseModelProvider {
 	private getContextLengthForModel(modelId: string): number {
 		const lowerModelId = modelId.toLowerCase();
 
-		// Return context lengths based on model
-		if (lowerModelId.includes('gpt-4o')) {
-			return 128000;
-		} else if (lowerModelId.includes('gpt-4-turbo') || lowerModelId.includes('gpt-4-1106')) {
+		if (lowerModelId.includes('gpt-4-turbo') || lowerModelId.includes('gpt-4o')) {
 			return 128000;
 		} else if (lowerModelId.includes('gpt-4-32k')) {
 			return 32768;
 		} else if (lowerModelId.includes('gpt-4')) {
 			return 8192;
 		} else if (lowerModelId.includes('gpt-3.5-turbo-16k')) {
-			return 16385;
-		} else if (lowerModelId.includes('gpt-3.5-turbo')) {
-			return 4096;
-		} else if (lowerModelId.includes('davinci')) {
-			return 4096;
+			return 16384;
 		} else {
-			// Default for unknown models
-			return 2048;
+			return 4096; // Default for other models
 		}
+	}
+
+	/**
+	 * Get model info by ID
+	 * @param modelId Model ID
+	 * @returns Model info or null if not found
+	 */
+	public getModelInfo(modelId: string): ModelInfo | null {
+		return this.models.get(modelId) || null;
+	}
+
+	/**
+	 * Get default model ID for a capability
+	 * @param capability Model capability
+	 * @returns Model ID or null if no suitable model found
+	 */
+	public async getDefaultModelForCapability(capability: ModelCapability): Promise<string | null> {
+		// Get preferred model from config
+		const preferredModel = this.configService.get<string>('providers.openai.preferredModel', '');
+
+		if (preferredModel) {
+			const model = this.models.get(preferredModel);
+			if (model && model.capabilities.includes(capability)) {
+				return model.id;
+			}
+		}
+
+		// Otherwise select based on capability
+		let candidateModels = Array.from(this.models.values())
+			.filter(model => model.capabilities.includes(capability))
+			.sort((a, b) => b.contextLength - a.contextLength); // Prefer models with larger context
+
+		// For code-related capabilities, prefer GPT-4
+		if ([ModelCapability.CodeGeneration, ModelCapability.Refactoring, ModelCapability.SecurityAnalysis].includes(capability)) {
+			const gpt4Models = candidateModels.filter(m => m.id.toLowerCase().includes('gpt-4'));
+			if (gpt4Models.length > 0) {
+				return gpt4Models[0].id;
+			}
+		}
+
+		// Use the first model with the capability if available
+		return candidateModels.length > 0 ? candidateModels[0].id : null;
+	}
+
+	/**
+	 * Dispose of resources
+	 */
+	public dispose(): void {
+		this._isReady = false;
+		this.client = null;
 	}
 }

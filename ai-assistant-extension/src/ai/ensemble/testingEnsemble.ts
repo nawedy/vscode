@@ -12,59 +12,80 @@ import { Logger } from '../../utils/logger';
 import { ConfigService } from '../../services/configService';
 import { ModelCapability } from '../providers/baseProvider';
 
+interface TestGenerationParams {
+    code: string;
+    language: string;
+    testFramework?: string;
+    coverage?: 'unit' | 'integration' | 'e2e';
+}
+
+interface GeneratedTest {
+    fileName: string;
+    content: string;
+    type: 'unit' | 'integration' | 'e2e';
+    testCases: TestCase[];
+}
+
+interface TestCase {
+    name: string;
+    description: string;
+    input?: Record<string, unknown>;
+    expectedOutput?: unknown;
+}
+
 /**
  * TestingEnsemble for test generation and enhancement
  */
 export class TestingEnsemble extends EnsembleLLM {
-	/**
-	 * Create a new testing ensemble
-	 * @param modelManager Model manager
-	 * @param logger Logger
-	 * @param configService Configuration service
-	 */
-	constructor(
-		modelManager: ModelManager,
-		logger: Logger,
-		configService: ConfigService
-// @ts-ignore: error TS2554: Expected 4 arguments, but got 3.
-// @ts-ignore: error TS2554: Expected 4 arguments, but got 3.
-// @ts-ignore: error TS2554: Expected 4 arguments, but got 3.
-// @ts-ignore: error TS2554: Expected 4 arguments, but got 3.
-// @ts-ignore: error TS2554: Expected 4 arguments, but got 3.
-// @ts-ignore: error TS2554: Expected 4 arguments, but got 3.
-	) {
-		super(modelManager, logger, configService);
-	}
+    /**
+     * Create a new testing ensemble
+     * @param modelManager Model manager
+     * @param logger Logger
+     * @param configService Configuration service
+     */
+    constructor(
+        modelManager: ModelManager,
+        logger: Logger,
+        configService: ConfigService
+    ) {
+        super(modelManager, logger, configService, 'testingEnsemble');
+        this.registerTasks();
+    }
 
-	/**
-	 * Get the name of the ensemble
-	 */
-	get name(): string {
-		return 'TestingEnsemble';
-	}
+    private registerTasks(): void {
+        this.registerTask('generateTests', this.generateTests.bind(this));
+        this.registerTask('generateTestCases', this.generateTestCases.bind(this));
+        this.registerTask('suggestTestCoverage', this.suggestTestCoverage.bind(this));
+    }
 
-	/**
-	 * Generate unit tests for a given code
-	 * @param params Task parameters
-	 * @returns Test code and metadata
-	 */
-	async task_generateUnitTests(params: {
-		code: string;
-		language: string;
-		framework?: string;
-		testingStyle?: 'unit' | 'integration' | 'e2e';
-	}): Promise<TaskResult> {
-		const taskId = Math.random().toString(36).substring(2, 15);
-		const startTime = Date.now();
+    /**
+     * Get the name of the ensemble
+     */
+    get name(): string {
+        return 'TestingEnsemble';
+    }
 
-		try {
-			const { code, language, framework, testingStyle = 'unit' } = params;
+    /**
+     * Generate unit tests for a given code
+     * @param params Task parameters
+     * @returns Test code and metadata
+     */
+    async task_generateUnitTests(params: {
+        code: string;
+        language: string;
+        framework?: string;
+        testingStyle?: 'unit' | 'integration' | 'e2e';
+    }): Promise<TaskResult> {
+        const startTime = Date.now();
 
-			// Detect testing framework if not provided
-			const detectedFramework = framework || await this.detectTestingFramework(language);
+        try {
+            const { code, language, framework, testingStyle = 'unit' } = params;
 
-			// Create prompt
-			const prompt = `Generate ${testingStyle} tests for the following ${language} code using the ${detectedFramework} testing framework.
+            // Detect testing framework if not provided
+            const detectedFramework = framework || await this.detectTestingFramework(language);
+
+            // Create prompt
+            const prompt = `Generate ${testingStyle} tests for the following ${language} code using the ${detectedFramework} testing framework.
 
 Code to test:
 \`\`\`${language}
@@ -80,167 +101,149 @@ Requirements:
 
 Return the test code directly without explanation, enclosed in a code block.`;
 
-// @ts-ignore: error TS2339: Property 'executeWithRetry' does not exist on type 'TestingEnsemble'.
-			// Generate test code
-			const result = await this.executeWithRetry(
-				prompt,
-				ModelCapability.Testing,
-				{
-					temperature: 0.2,  // Lower temperature for more focused results
-					maxTokens: 2048
-				}
-			);
+            // Generate test code
+            const result = await this.execute(
+                prompt,
+                ModelCapability.Testing,
+                {
+                    temperature: 0.2,  // Lower temperature for more focused results
+                    maxTokens: 2048
+                }
+            );
 
-			// Extract test code
-			const testCodeMatch = result.content.match(/```(?:\w+)?\s*([\s\S]+?)```/);
-			const testCode = testCodeMatch ? testCodeMatch[1].trim() : result.content.trim();
+            // Extract test code
+            const testCodeMatch = result.content.match(/```(?:\w+)?\s*([\s\S]+?)```/);
+            const testCode = testCodeMatch ? testCodeMatch[1].trim() : result.content.trim();
 
-			// Generate test file name
-			const testFileName = this.generateTestFileName(params.language);
+            // Generate test file name
+            const testFileName = this.generateTestFileName(params.language);
 
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-			return {
-				taskId,
-				content: {
-					testCode,
-					testFileName,
-					framework: detectedFramework
-				},
-				metrics: {
-					taskId,
-					taskType: 'generateUnitTests',
-					startTime,
-					endTime: Date.now(),
-					totalTokens: result.totalTokens,
-					promptTokens: result.promptTokens,
-					completionTokens: result.completionTokens,
-					numLLMCalls: 1
-				},
-				metadata: {
-					modelIds: [result.metadata?.model as string]
-				}
-			};
-		} catch (error) {
-			this.logger.error(`Error generating unit tests: ${error instanceof Error ? error.message : String(error)}`);
+            return {
+                content: {
+                    testCode,
+                    testFileName,
+                    framework: detectedFramework
+                },
+                metrics: {
+                    taskType: 'generateUnitTests',
+                    startTime,
+                    endTime: Date.now(),
+                    totalTokens: result.totalTokens,
+                    promptTokens: result.promptTokens,
+                    completionTokens: result.completionTokens,
+                    numLLMCalls: 1
+                },
+                metadata: {
+                    modelIds: [result.metadata?.model as string]
+                }
+            };
+        } catch (error) {
+            this.logger.error(`Error generating unit tests: ${error instanceof Error ? error.message : String(error)}`);
 
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-			return {
-				taskId,
-				content: {
-					error: `Failed to generate tests: ${error instanceof Error ? error.message : String(error)}`,
-					testCode: '',
-					testFileName: this.generateTestFileName(params.language)
-				},
-				metrics: {
-					taskId,
-					taskType: 'generateUnitTests',
-					startTime,
-					endTime: Date.now(),
-					error: error instanceof Error ? error.message : String(error)
-				}
-			};
-		}
-	}
+            return {
+                content: {
+                    error: `Failed to generate tests: ${error instanceof Error ? error.message : String(error)}`,
+                    testCode: '',
+                    testFileName: this.generateTestFileName(params.language)
+                },
+                metrics: {
+                    taskType: 'generateUnitTests',
+                    startTime,
+                    endTime: Date.now(),
+                    error: error instanceof Error ? error.message : String(error)
+                }
+            };
+        }
+    }
 
-	/**
-	 * Generate a test file name based on the target file name
-	 * @param language Programming language
-	 * @param targetFileName Optional target file name
-	 * @returns Test file name
-	 */
-	private generateTestFileName(language: string, targetFileName?: string): string {
-		const baseName = targetFileName ? targetFileName.replace(/\.\w+$/, '') : 'example';
+    /**
+     * Generate a test file name based on the target file name
+     * @param language Programming language
+     * @param targetFileName Optional target file name
+     * @returns Test file name
+     */
+    private generateTestFileName(language: string, targetFileName?: string): string {
+        const baseName = targetFileName ? targetFileName.replace(/\.\w+$/, '') : 'example';
 
-		switch (language.toLowerCase()) {
-			case 'javascript':
-			case 'typescript':
-			case 'jsx':
-			case 'tsx':
-				return `${baseName}.test.${language}`;
+        switch (language.toLowerCase()) {
+            case 'javascript':
+            case 'typescript':
+            case 'jsx':
+            case 'tsx':
+                return `${baseName}.test.${language}`;
 
-			case 'python':
-				return `test_${baseName}.py`;
+            case 'python':
+                return `test_${baseName}.py`;
 
-			case 'java':
-				return `${baseName.charAt(0).toUpperCase() + baseName.slice(1)}Test.java`;
+            case 'java':
+                return `${baseName.charAt(0).toUpperCase() + baseName.slice(1)}Test.java`;
 
-			case 'csharp':
-			case 'cs':
-				return `${baseName.charAt(0).toUpperCase() + baseName.slice(1)}Tests.cs`;
+            case 'csharp':
+            case 'cs':
+                return `${baseName.charAt(0).toUpperCase() + baseName.slice(1)}Tests.cs`;
 
-			case 'go':
-				return `${baseName}_test.go`;
+            case 'go':
+                return `${baseName}_test.go`;
 
-			default:
-				return `${baseName}_test.${language}`;
-		}
-	}
+            default:
+                return `${baseName}_test.${language}`;
+        }
+    }
 
-	/**
-	 * Detect appropriate testing framework based on language
-	 * @param language Programming language
-	 * @returns Testing framework name
-	 */
-	private async detectTestingFramework(language: string): Promise<string> {
-		switch (language.toLowerCase()) {
-			case 'javascript':
-			case 'typescript':
-			case 'jsx':
-			case 'tsx':
-				return 'Jest';
+    /**
+     * Detect appropriate testing framework based on language
+     * @param language Programming language
+     * @returns Testing framework name
+     */
+    private async detectTestingFramework(language: string): Promise<string> {
+        switch (language.toLowerCase()) {
+            case 'javascript':
+            case 'typescript':
+            case 'jsx':
+            case 'tsx':
+                return 'Jest';
 
-			case 'python':
-				return 'pytest';
+            case 'python':
+                return 'pytest';
 
-			case 'java':
-				return 'JUnit';
+            case 'java':
+                return 'JUnit';
 
-			case 'csharp':
-			case 'cs':
-				return 'xUnit';
+            case 'csharp':
+            case 'cs':
+                return 'xUnit';
 
-			case 'go':
-				return 'go testing';
+            case 'go':
+                return 'go testing';
 
-			case 'ruby':
-				return 'RSpec';
+            case 'ruby':
+                return 'RSpec';
 
-			case 'php':
-				return 'PHPUnit';
+            case 'php':
+                return 'PHPUnit';
 
-			default:
-				return 'an appropriate testing framework';
-		}
-	}
+            default:
+                return 'an appropriate testing framework';
+        }
+    }
 
-	/**
-	 * Generate test mocks for a given code
-	 * @param params Task parameters
-	 * @returns Mock code and metadata
-	 */
-	async task_generateMocks(params: {
-		code: string;
-		language: string;
-		dependencies: string[];
-	}): Promise<TaskResult> {
-		const taskId = Math.random().toString(36).substring(2, 15);
-		const startTime = Date.now();
+    /**
+     * Generate test mocks for a given code
+     * @param params Task parameters
+     * @returns Mock code and metadata
+     */
+    async task_generateMocks(params: {
+        code: string;
+        language: string;
+        dependencies: string[];
+    }): Promise<TaskResult> {
+        const startTime = Date.now();
 
-		try {
-			const { code, language, dependencies } = params;
+        try {
+            const { code, language, dependencies } = params;
 
-			// Create prompt
-			const prompt = `Generate mock implementations for the following dependencies in ${language}:
+            // Create prompt
+            const prompt = `Generate mock implementations for the following dependencies in ${language}:
 
 Dependencies to mock: ${dependencies.join(', ')}
 
@@ -251,92 +254,74 @@ ${code}
 
 Return the mock code directly without explanation, enclosed in a code block.`;
 
-// @ts-ignore: error TS2339: Property 'executeWithRetry' does not exist on type 'TestingEnsemble'.
-			// Generate mock code
-			const result = await this.executeWithRetry(
-				prompt,
-				ModelCapability.Testing,
-				{
-					temperature: 0.2,
-					maxTokens: 1024
-				}
-			);
+            // Generate mock code
+            const result = await this.execute(
+                prompt,
+                ModelCapability.Testing,
+                {
+                    temperature: 0.2,
+                    maxTokens: 1024
+                }
+            );
 
-			// Extract mock code
-			const mockCodeMatch = result.content.match(/```(?:\w+)?\s*([\s\S]+?)```/);
-			const mockCode = mockCodeMatch ? mockCodeMatch[1].trim() : result.content.trim();
+            // Extract mock code
+            const mockCodeMatch = result.content.match(/```(?:\w+)?\s*([\s\S]+?)```/);
+            const mockCode = mockCodeMatch ? mockCodeMatch[1].trim() : result.content.trim();
 
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-			return {
-				taskId,
-				content: {
-					mockCode,
-					dependencies
-				},
-				metrics: {
-					taskId,
-					taskType: 'generateMocks',
-					startTime,
-					endTime: Date.now(),
-					totalTokens: result.totalTokens,
-					promptTokens: result.promptTokens,
-					completionTokens: result.completionTokens,
-					numLLMCalls: 1
-				},
-				metadata: {
-					modelIds: [result.metadata?.model as string]
-				}
-			};
-		} catch (error) {
-			this.logger.error(`Error generating mocks: ${error instanceof Error ? error.message : String(error)}`);
+            return {
+                content: {
+                    mockCode,
+                    dependencies
+                },
+                metrics: {
+                    taskType: 'generateMocks',
+                    startTime,
+                    endTime: Date.now(),
+                    totalTokens: result.totalTokens,
+                    promptTokens: result.promptTokens,
+                    completionTokens: result.completionTokens,
+                    numLLMCalls: 1
+                },
+                metadata: {
+                    modelIds: [result.metadata?.model as string]
+                }
+            };
+        } catch (error) {
+            this.logger.error(`Error generating mocks: ${error instanceof Error ? error.message : String(error)}`);
 
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-			return {
-				taskId,
-				content: {
-					error: `Failed to generate mocks: ${error instanceof Error ? error.message : String(error)}`,
-					mockCode: '',
-					dependencies: params.dependencies
-				},
-				metrics: {
-					taskId,
-					taskType: 'generateMocks',
-					startTime,
-					endTime: Date.now(),
-					error: error instanceof Error ? error.message : String(error)
-				}
-			};
-		}
-	}
+            return {
+                content: {
+                    error: `Failed to generate mocks: ${error instanceof Error ? error.message : String(error)}`,
+                    mockCode: '',
+                    dependencies: params.dependencies
+                },
+                metrics: {
+                    taskType: 'generateMocks',
+                    startTime,
+                    endTime: Date.now(),
+                    error: error instanceof Error ? error.message : String(error)
+                }
+            };
+        }
+    }
 
-	/**
-	 * Analyze test coverage
-	 * @param params Task parameters
-	 * @returns Coverage analysis
-	 */
-	async task_analyzeCoverage(params: {
-		code: string;
-		tests: string;
-		language: string;
-	}): Promise<TaskResult> {
-		const taskId = Math.random().toString(36).substring(2, 15);
-		const startTime = Date.now();
+    /**
+     * Analyze test coverage
+     * @param params Task parameters
+     * @returns Coverage analysis
+     */
+    async task_analyzeCoverage(params: {
+        code: string;
+        tests: string;
+        language: string;
+    }): Promise<TaskResult> {
+        const startTime = Date.now();
 
-		try {
-			const { code, tests, language } = params;
+        try {
+            const { code, tests, language } = params;
 
-			// Create prompt
-			const prompt = `Analyze test coverage for the following code and tests in ${language}:
+            // Create prompt
+            const prompt = `Analyze test coverage for the following code and tests in ${language}:
 
 Implementation code:
 \`\`\`${language}
@@ -365,95 +350,78 @@ Return the analysis in JSON format with the following structure:
 }
 \`\`\``;
 
-// @ts-ignore: error TS2339: Property 'executeWithRetry' does not exist on type 'TestingEnsemble'.
-			// Generate coverage analysis
-			const result = await this.executeWithRetry(
-				prompt,
-				ModelCapability.Testing,
-				{
-					temperature: 0.1,
-					maxTokens: 1024
-				}
-			);
+            // Generate coverage analysis
+            const result = await this.execute(
+                prompt,
+                ModelCapability.Testing,
+                {
+                    temperature: 0.1,
+                    maxTokens: 1024
+                }
+            );
 
-			// Extract JSON data
-			const jsonMatch = result.content.match(/```(?:json)?\s*({[\s\S]+?})```/) || result.content.match(/({[\s\S]*"recommendedTests"[\s\S]*})/);
-			let coverageData;
+            // Extract JSON data
+            const jsonMatch = result.content.match(/```(?:json)?\s*({[\s\S]+?})```/) || result.content.match(/({[\s\S]*"recommendedTests"[\s\S]*})/);
+            let coverageData;
 
-			if (jsonMatch && jsonMatch[1]) {
-				try {
-					coverageData = JSON.parse(jsonMatch[1]);
-				} catch (e) {
-					this.logger.warn(`Failed to parse JSON from result: ${e instanceof Error ? e.message : String(e)}`);
-					coverageData = {
-						coveredFunctionality: [],
-						missingCoverage: [],
-						missingEdgeCases: [],
-						overallCoveragePercent: 0,
-						recommendedTests: []
-					};
-				}
-			} else {
-				// Fallback if JSON parse fails
-				coverageData = {
-					coveredFunctionality: [],
-					missingCoverage: [],
-					missingEdgeCases: [],
-					overallCoveragePercent: 0,
-					recommendedTests: []
-				};
-			}
+            if (jsonMatch && jsonMatch[1]) {
+                try {
+                    coverageData = JSON.parse(jsonMatch[1]);
+                } catch (e) {
+                    this.logger.warn(`Failed to parse JSON from result: ${e instanceof Error ? e.message : String(e)}`);
+                    coverageData = {
+                        coveredFunctionality: [],
+                        missingCoverage: [],
+                        missingEdgeCases: [],
+                        overallCoveragePercent: 0,
+                        recommendedTests: []
+                    };
+                }
+            } else {
+                // Fallback if JSON parse fails
+                coverageData = {
+                    coveredFunctionality: [],
+                    missingCoverage: [],
+                    missingEdgeCases: [],
+                    overallCoveragePercent: 0,
+                    recommendedTests: []
+                };
+            }
 
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-			return {
-				taskId,
-				content: coverageData,
-				metrics: {
-					taskId,
-					taskType: 'analyzeCoverage',
-					startTime,
-					endTime: Date.now(),
-					totalTokens: result.totalTokens,
-					promptTokens: result.promptTokens,
-					completionTokens: result.completionTokens,
-					numLLMCalls: 1
-				},
-				metadata: {
-					modelIds: [result.metadata?.model as string]
-				}
-			};
-		} catch (error) {
-			this.logger.error(`Error analyzing coverage: ${error instanceof Error ? error.message : String(error)}`);
+            return {
+                content: coverageData,
+                metrics: {
+                    taskType: 'analyzeCoverage',
+                    startTime,
+                    endTime: Date.now(),
+                    totalTokens: result.totalTokens,
+                    promptTokens: result.promptTokens,
+                    completionTokens: result.completionTokens,
+                    numLLMCalls: 1
+                },
+                metadata: {
+                    modelIds: [result.metadata?.model as string]
+                }
+            };
+        } catch (error) {
+            this.logger.error(`Error analyzing coverage: ${error instanceof Error ? error.message : String(error)}`);
 
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskId' does not exist in type 'TaskResult<any>'.
-			return {
-				taskId,
-				content: {
-					error: `Failed to analyze coverage: ${error instanceof Error ? error.message : String(error)}`,
-					coveredFunctionality: [],
-					missingCoverage: [],
-					missingEdgeCases: [],
-					overallCoveragePercent: 0,
-					recommendedTests: []
-				},
-				metrics: {
-					taskId,
-					taskType: 'analyzeCoverage',
-					startTime,
-					endTime: Date.now(),
-					error: error instanceof Error ? error.message : String(error)
-				}
-			};
-		}
-	}
+            return {
+                content: {
+                    error: `Failed to analyze coverage: ${error instanceof Error ? error.message : String(error)}`,
+                    coveredFunctionality: [],
+                    missingCoverage: [],
+                    missingEdgeCases: [],
+                    overallCoveragePercent: 0,
+                    recommendedTests: []
+                },
+                metrics: {
+                    taskType: 'analyzeCoverage',
+                    startTime,
+                    endTime: Date.now(),
+                    error: error instanceof Error ? error.message : String(error)
+                }
+            };
+        }
+    }
 }

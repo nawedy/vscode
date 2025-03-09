@@ -3,14 +3,52 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '../utils/logger';
 
+export interface Prompt {
+	id: string;
+	template: string;
+	description?: string;
+	variables?: string[];
+	category?: string;
+}
+
+interface PromptTemplate {
+	id: string;
+	content: string;
+	description?: string;
+	variables: string[];
+	metadata?: Record<string, unknown>;
+}
+
+export interface RenderOptions {
+	template: string;
+	variables: Record<string, unknown>;
+	fallback?: string;
+}
+
+interface TemplateContent {
+	content: string;
+	metadata?: {
+		description?: string;
+		variables?: string[];
+		[key: string]: unknown;
+	};
+}
+
+interface RenderResult {
+	rendered: string;
+	success: boolean;
+	error?: string;
+}
+
 /**
  * Manages prompt templates for AI requests
  */
 export class PromptManager {
 	private readonly context: vscode.ExtensionContext;
 	private readonly logger: Logger;
-	private templates: Map<string, string> = new Map();
+	private templates: Map<string, PromptTemplate> = new Map();
 	private readonly templateDir = 'src/prompts/templates';
+	private prompts: Map<string, Prompt> = new Map();
 
 	/**
 	 * Create a new PromptManager
@@ -46,7 +84,7 @@ export class PromptManager {
 					const content = fs.readFileSync(templatePath, 'utf8');
 					const templateName = path.basename(file, '.md');
 
-					this.templates.set(templateName, content);
+					this.templates.set(templateName, { id: templateName, content, variables: [] });
 					this.logger.debug(`Loaded template: ${templateName}`);
 				} catch (error) {
 					this.logger.error(`Error loading template ${file}: ${error instanceof Error ? error.message : String(error)}`);
@@ -66,7 +104,8 @@ export class PromptManager {
 	 * @returns Template content or undefined if not found
 	 */
 	public getTemplate(templateName: string): string | undefined {
-		return this.templates.get(templateName);
+		const template = this.templates.get(templateName);
+		return template?.content;
 	}
 
 	/**
@@ -118,7 +157,7 @@ export class PromptManager {
 			fs.writeFileSync(templatePath, content, 'utf8');
 
 			// Add to loaded templates
-			this.templates.set(safeName, content);
+			this.templates.set(safeName, { id: safeName, content, variables: [] });
 
 			this.logger.info(`Created new template: ${safeName}`);
 			return true;
@@ -147,7 +186,7 @@ export class PromptManager {
 			fs.writeFileSync(templatePath, content, 'utf8');
 
 			// Update in-memory template
-			this.templates.set(templateName, content);
+			this.templates.set(templateName, { id: templateName, content, variables: [] });
 
 			this.logger.info(`Updated template: ${templateName}`);
 			return true;
@@ -155,5 +194,63 @@ export class PromptManager {
 			this.logger.error(`Failed to update template ${templateName}: ${error instanceof Error ? error.message : String(error)}`);
 			return false;
 		}
+	}
+
+	public render(
+		templateId: string,
+		variables: Record<string, unknown>,
+		fallback?: string
+	): RenderResult {
+		const template = this.templates.get(templateId);
+		if (!template) {
+			return {
+				rendered: fallback || '',
+				success: false,
+				error: `Template not found: ${templateId}`
+			};
+		}
+
+		try {
+			let result = template.content;
+			for (const [key, value] of Object.entries(variables)) {
+				const placeholder = `{{${key}}}`;
+				result = result.replace(new RegExp(placeholder, 'g'), String(value));
+			}
+
+			return {
+				rendered: result,
+				success: true
+			};
+		} catch (error) {
+			return {
+				rendered: fallback || '',
+				success: false,
+				error: error instanceof Error ? error.message : String(error)
+			};
+		}
+	}
+
+	public registerTemplate(template: PromptTemplate): void {
+		this.templates.set(template.id, template);
+		this.logger.info(`Registered template: ${template.id}`);
+	}
+
+	public getTemplate(id: string): string | undefined {
+		return this.prompts.get(id)?.template;
+	}
+
+	public render(id: string, variables: Record<string, any>): string | undefined {
+		const template = this.getTemplate(id);
+		if (!template) {
+			return undefined;
+		}
+
+		let result = template;
+		for (const [key, value] of Object.entries(variables)) {
+			const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+			result = result.replace(regex, String(value));
+		}
+
+		return result;
 	}
 }

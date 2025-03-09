@@ -19,15 +19,50 @@ import { ProviderRegistry } from './providerRegistry';
 import { ConfigService } from '../services/configService';
 import { TelemetryService } from '../services/telemetryService';
 import { Logger } from '../utils/logger';
+import { EventEmitter } from 'vscode';
+
+export interface ModelManagerConfig {
+	defaultProviders: string[];
+	maxRetries: number;
+	retryDelay: number;
+	timeout: number;
+}
+
+export interface ExecuteOptions {
+	capability: ModelCapability;
+	providerId?: string;
+	modelId?: string;
+	temperature?: number;
+	maxTokens?: number;
+}
+
+interface TelemetryMetrics {
+	durationMs: number;
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+}
+
+interface ModelRequestMetadata {
+	promptLength: number;
+	[key: string]: unknown;
+}
+
+export interface ModelSelectionCriteria {
+	capability: ModelCapability;
+	minContextLength?: number;
+	maxLatency?: number;
+	preferredProvider?: string;
+}
 
 /**
  * Class for managing model providers and models
  */
 export class ModelManager {
-	private readonly registry: ProviderRegistry;
-	private readonly configService: ConfigService;
-	private readonly telemetryService: TelemetryService;
 	private readonly logger: Logger;
+	private readonly configService: ConfigService;
+	private readonly providerRegistry: ProviderRegistry;
+	private defaultProvider?: string;
 
 	// Event emitter for model ready state changes
 	private readonly _onModelReady = new vscode.EventEmitter<BaseModelProvider>();
@@ -45,22 +80,25 @@ export class ModelManager {
 	 * @param logger Logger instance
 	 */
 	constructor(
-		registry: ProviderRegistry,
+		logger: Logger,
 		configService: ConfigService,
-		telemetryService: TelemetryService,
-		logger: Logger
+		providerRegistry: ProviderRegistry
 	) {
-		this.registry = registry;
-		this.configService = configService;
-		this.telemetryService = telemetryService;
 		this.logger = logger;
+		this.configService = configService;
+		this.providerRegistry = providerRegistry;
+		this.loadDefaultProvider();
 
 		// Listen for provider state changes
-		this.registry.onProviderStateChanged(provider => {
+		this.providerRegistry.onProviderStateChanged(provider => {
 			if (provider.isReady) {
 				this._onModelReady.fire(provider);
 			}
 		});
+	}
+
+	private loadDefaultProvider(): void {
+		this.defaultProvider = this.configService.get<string>('ai.defaultProvider');
 	}
 
 	/**
@@ -68,7 +106,7 @@ export class ModelManager {
 	 */
 	public async initialize(): Promise<void> {
 		this.logger.info('Initializing model manager');
-		await this.registry.initialize();
+		await this.providerRegistry.initialize();
 	}
 
 	/**
@@ -76,7 +114,7 @@ export class ModelManager {
 	 * @returns Array of providers
 	 */
 	public getProviders(): BaseModelProvider[] {
-		return this.registry.getProviders();
+		return this.providerRegistry.getProviders();
 	}
 
 	/**
@@ -85,7 +123,7 @@ export class ModelManager {
 	 * @returns Provider or undefined if not found
 	 */
 	public getProvider(providerId: string): BaseModelProvider | undefined {
-		return this.registry.getProvider(providerId);
+		return this.providerRegistry.getProvider(providerId);
 	}
 
 	/**
@@ -93,7 +131,7 @@ export class ModelManager {
 	 * @returns Array of available providers
 	 */
 	public getAvailableProviders(): BaseModelProvider[] {
-		return this.registry.getAvailableProviders();
+		return this.providerRegistry.getAvailableProviders();
 	}
 
 	/**
@@ -102,7 +140,7 @@ export class ModelManager {
 	 * @returns Whether initialization was successful
 	 */
 	public async initializeProvider(providerId: string): Promise<boolean> {
-		return this.registry.initializeProvider(providerId);
+		return this.providerRegistry.initializeProvider(providerId);
 	}
 
 	/**
@@ -112,7 +150,7 @@ export class ModelManager {
 	public getAllModels(): Array<{ provider: BaseModelProvider; model: ModelInfo }> {
 		const result: Array<{ provider: BaseModelProvider; model: ModelInfo }> = [];
 
-		for (const provider of this.registry.getProviders()) {
+		for (const provider of this.providerRegistry.getProviders()) {
 			for (const [, model] of provider.getModels()) {
 				result.push({ provider, model });
 			}
@@ -145,7 +183,7 @@ export class ModelManager {
 			// If there's a configured default for this capability, use it
 			if (defaultModels[capability]) {
 				const { providerId, modelId } = defaultModels[capability];
-				const provider = this.registry.getProvider(providerId);
+				const provider = this.providerRegistry.getProvider(providerId);
 
 				if (provider && provider.isReady) {
 					// Verify model exists and has the capability
@@ -158,7 +196,7 @@ export class ModelManager {
 			}
 
 			// No valid configured default, find a suitable model
-			const providersWithCapability = this.registry.getProvidersWithCapability(capability);
+			const providersWithCapability = this.providerRegistry.getProvidersWithCapability(capability);
 
 			for (const provider of providersWithCapability) {
 				const modelId = await provider.getDefaultModelForCapability(capability);
@@ -184,80 +222,45 @@ export class ModelManager {
 	 */
 	public async generateCompletion(
 		prompt: string,
-		capability: ModelCapability | ModelRequestOptions,
 		options?: ModelRequestOptions
 	): Promise<ModelResponse> {
-		try {
-			// Parse arguments
-			let modelCapability: ModelCapability;
-			let modelOptions: ModelRequestOptions = {};
-
-			if (typeof capability === 'string') {
-				modelCapability = capability;
-				modelOptions = options || {};
-			} else {
-				modelCapability = capability.capability || ModelCapability.ChatCompletion;
-				modelOptions = capability;
-			}
-
-			// Start performance measurement
-			const startTime = Date.now();
-
-			// Get default model for capability
-			const defaultModel = await this.getDefaultModelForCapability(modelCapability);
-
-			if (!defaultModel) {
-				throw new ModelProviderError(
-					`No model available for capability: ${modelCapability}`,
-					'modelManager'
-				);
-			}
-
-			// Use the selected provider and model
-			const { provider, modelId } = defaultModel;
-
-			// Set modelId in options if not specified
-			if (!modelOptions.modelParams) {
-				modelOptions.modelParams = { modelId };
-			} else if (!modelOptions.modelParams.modelId) {
-				modelOptions.modelParams.modelId = modelId;
-			}
-
-			// Generate completion
-			const response = await provider.generateCompletion(prompt, modelOptions);
-
-			// End performance measurement
-			const duration = Date.now() - startTime;
-
-			// Track telemetry
-			this.telemetryService.trackModelRequest(
-				modelId,
-				provider.id,
-				modelCapability,
-				{ promptLength: prompt.length },
-				{
-					durationMs: duration,
-					promptTokens: response.promptTokens || 0,
-					completionTokens: response.completionTokens || 0,
-					totalTokens: response.totalTokens || 0
-				}
-			);
-
-			return response;
-		} catch (error) {
-			// Log error
-			this.logger.error(`Error generating completion: ${error instanceof Error ? error.message : String(error)}`);
-
-			// Track error telemetry
-			this.telemetryService.trackError(
-				'ModelCompletion',
-				error instanceof Error ? error.message : String(error),
-				{ capability: typeof capability === 'string' ? capability : capability.capability || 'unknown' }
-			);
-
-			// Rethrow error
-			throw error;
+		const provider = await this.selectProvider(options);
+		if (!provider) {
+			throw new ModelProviderError('No suitable provider found', 'modelManager');
 		}
+
+		return provider.generateCompletion(prompt, options);
+	}
+
+	private async selectProvider(options?: ModelRequestOptions): Promise<BaseModelProvider | undefined> {
+		if (options?.providerOverride) {
+			return this.providerRegistry.getProvider(options.providerOverride);
+		}
+
+		// Use default provider if available and suitable
+		if (this.defaultProvider) {
+			const defaultProvider = this.providerRegistry.getProvider(this.defaultProvider);
+			if (defaultProvider?.isReady && (!options?.capability || this.providerSupportsCapability(defaultProvider, options.capability))) {
+				return defaultProvider;
+			}
+		}
+
+		// Otherwise find first suitable provider
+		return this.findSuitableProvider(options?.capability);
+	}
+
+	private async findSuitableProvider(capability?: ModelCapability): Promise<BaseModelProvider | undefined> {
+		for (const provider of this.providerRegistry.getAllProviders()) {
+			if (provider.isReady && (!capability || this.providerSupportsCapability(provider, capability))) {
+				return provider;
+			}
+		}
+		return undefined;
+	}
+
+	private providerSupportsCapability(provider: BaseModelProvider, capability: ModelCapability): boolean {
+		const models = Array.from(provider.getModels().values());
+		return models.some(model => model.capabilities.includes(capability));
 	}
 
 	/**
@@ -412,14 +415,14 @@ export class ModelManager {
 		try {
 			// If provider specified, use it
 			if (providerId) {
-				const provider = this.registry.getProvider(providerId);
+				const provider = this.providerRegistry.getProvider(providerId);
 				if (provider && provider.isReady) {
 					return await provider.countTokens(text);
 				}
 			}
 
 			// Otherwise, use the first available provider
-			const providers = this.registry.getAvailableProviders();
+			const providers = this.providerRegistry.getAvailableProviders();
 			if (providers.length > 0) {
 				return await providers[0].countTokens(text);
 			}
@@ -439,5 +442,24 @@ export class ModelManager {
 	 */
 	public dispose(): void {
 		this._onModelReady.dispose();
+		this.providerRegistry.dispose();
+	}
+
+	private async validateModelCapability(
+		provider: BaseModelProvider,
+		modelId: string,
+		capability: ModelCapability
+	): Promise<boolean> {
+		// ...existing code...
+	}
+
+	public getAvailableModels(): ModelInfo[] {
+		const models: ModelInfo[] = [];
+		for (const provider of this.providerRegistry.getAllProviders()) {
+			if (provider.isReady) {
+				models.push(...Array.from(provider.getModels().values()));
+			}
+		}
+		return models;
 	}
 }

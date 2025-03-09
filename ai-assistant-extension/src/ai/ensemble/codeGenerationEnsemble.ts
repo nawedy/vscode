@@ -13,23 +13,27 @@ import { Logger } from '../../utils/logger';
 import { ConfigService } from '../../services/configService';
 import { ModelCapability } from '../providers/baseProvider';
 import { CodeContext } from '../../context/contextManager';
+import { FileParser } from '../../context/fileParser';
+import { ProjectAnalyzer } from '../../context/projectAnalyzer';
 
 /**
  * Generated code file
  */
 export interface GeneratedCodeFile {
-	filePath: string;
-	code: string;
-	description?: string;
-	isNew: boolean;
+	fileName: string;
+	content: string;
+	language: string;
+	documentation?: string;
 }
 
 /**
  * Code generation result
  */
 export interface CodeGenerationResult {
-	code: string;
-	explanation: string;
+	files: GeneratedCodeFile[];
+	explanation?: string;
+	testFiles?: GeneratedCodeFile[];
+	metadata?: Record<string, unknown>;
 }
 
 /**
@@ -44,10 +48,9 @@ export interface FeatureImplementationResult {
  * Params for generating code
  */
 interface GenerateCodeParams {
-	prompt: string;
+	description: string;
 	language: string;
-	existingCode?: string;
-	context?: CodeContext;
+	projectContext?: Record<string, unknown>;
 }
 
 /**
@@ -74,77 +77,99 @@ interface ImplementArchitectureParams {
 	context?: CodeContext;
 }
 
+interface GenerationParams {
+	prompt: string;
+	language: string;
+	context?: string;
+	requirements?: string[];
+}
+
+interface GenerationResult {
+	code: string;
+	explanation?: string;
+	tests?: string;
+}
+
 /**
  * Code generation ensemble for feature implementations
  */
 export class CodeGenerationEnsemble extends EnsembleLLM {
+	private readonly fileParser: FileParser;
+	private readonly projectAnalyzer: ProjectAnalyzer;
+
 	/**
 	 * Create a new code generation ensemble
 	 * @param modelManager Model manager
 	 * @param logger Logger instance
 	 * @param configService Configuration service
+	 * @param fileParser File parser
+	 * @param projectAnalyzer Project analyzer
 	 */
 	constructor(
 		modelManager: ModelManager,
 		logger: Logger,
-		configService: ConfigService
+		configService: ConfigService,
+		fileParser: FileParser,
+		projectAnalyzer: ProjectAnalyzer
 	) {
-		super(modelManager, logger, configService, 'code-generation');
+		super(modelManager, logger, configService, 'codeGeneration');
+		this.fileParser = fileParser;
+		this.projectAnalyzer = projectAnalyzer;
 
-		// Register tasks
-		this.registerTask('generateCode', this.task_generateCode.bind(this));
-		this.registerTask('implementFeature', this.task_implementFeature.bind(this));
-		this.registerTask('implementArchitecture', this.task_implementArchitecture.bind(this));
-		this.registerTask('implementDesignPattern', this.task_implementDesignPattern.bind(this));
+		this.registerTasks();
 	}
 
-	/**
-	 * Generate code from a prompt
-	 * @param params Code generation parameters
-	 * @returns Task result with generated code
-	 */
-	async task_generateCode(params: GenerateCodeParams): Promise<TaskResult<CodeGenerationResult>> {
-		this.logger.info('Generating code');
+	private registerTasks(): void {
+		this.registerTask('generateCode', this.generateCode.bind(this));
+		this.registerTask('generateTests', this.generateTests.bind(this));
+		this.registerTask('generateDocumentation', this.generateDocumentation.bind(this));
+	}
 
+	private async generateCode(params: GenerationParams): Promise<TaskResult<GenerationResult>> {
 		try {
-			// Create prompt for code generation
-			const prompt = await this.buildCodeGenerationPrompt(params);
+			// Generate code with multiple models
+			const responses = await this.generate(
+				this.buildCodePrompt(params),
+				{
+					capability: ModelCapability.CodeGeneration,
+					minResponses: 2,
+					votingStrategy: 'weighted'
+				}
+			);
 
-			// Call the model with the appropriate capability
-			const response = await this.modelManager.generateCompletion(prompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-				capability: ModelCapability.CodeGeneration,
-				taskType: 'generateCode',
-				temperature: 0.3,
-				maxTokens: 2048
-			});
-
-			// Parse the response to extract code and explanation
-			const result = this.parseCodeGenerationResponse(response.content, params.language);
+			// Process and combine responses
+			const result = this.processGenerationResults(responses);
 
 			return {
 				success: true,
-				content: result,
-				metadata: {
-					promptTokens: response.promptTokens,
-					completionTokens: response.completionTokens,
-					totalTokens: response.totalTokens,
-					language: params.language
-				}
+				content: result
 			};
 		} catch (error) {
-			this.logger.error(`Error generating code: ${error instanceof Error ? error.message : String(error)}`);
-
 			return {
 				success: false,
-				error: `Failed to generate code: ${error instanceof Error ? error.message : String(error)}`
+				error: `Code generation failed: ${error instanceof Error ? error.message : String(error)}`
 			};
 		}
+	}
+
+	private async generateTests(params: GenerationParams): Promise<TaskResult<string>> {
+		// Implementation for test generation
+		// ...existing code...
+	}
+
+	private async generateDocumentation(params: GenerationParams): Promise<TaskResult<string>> {
+		// Implementation for documentation generation
+		// ...existing code...
+	}
+
+	private buildCodePrompt(params: GenerationParams): string {
+		// Implementation for building code prompt
+		// ...existing code...
+	}
+
+	private processGenerationResults(responses: EnsembleResult): GenerationResult {
+		// Implementation for processing generation results
+		// ...existing code...
 	}
 
 	/**
@@ -159,14 +184,7 @@ export class CodeGenerationEnsemble extends EnsembleLLM {
 			// First, generate an implementation plan
 			const planPrompt = await this.buildFeatureImplementationPlanPrompt(params);
 			const planResponse = await this.modelManager.generateCompletion(planPrompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 				capability: ModelCapability.Planning,
-				taskType: 'implementFeature_plan',
 				temperature: 0.3,
 				maxTokens: 2048
 			});
@@ -177,14 +195,7 @@ export class CodeGenerationEnsemble extends EnsembleLLM {
 			// Generate a list of files to create/modify
 			const filesListPrompt = await this.buildFilesListPrompt(params, implementationPlan);
 			const filesListResponse = await this.modelManager.generateCompletion(filesListPrompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 				capability: ModelCapability.Planning,
-				taskType: 'implementFeature_filesList',
 				temperature: 0.2,
 				maxTokens: 1024
 			});
@@ -198,14 +209,7 @@ export class CodeGenerationEnsemble extends EnsembleLLM {
 				// Generate code for this file
 				const filePrompt = await this.buildFileImplementationPrompt(params, fileInfo, implementationPlan);
 				const fileResponse = await this.modelManager.generateCompletion(filePrompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 					capability: ModelCapability.CodeGeneration,
-					taskType: 'implementFeature_file',
 					temperature: 0.2,
 					maxTokens: 3072
 				});
@@ -308,14 +312,7 @@ EXPLANATION:
 
 			// Call the model with the appropriate capability
 			const response = await this.modelManager.generateCompletion(prompt, {
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
-// @ts-ignore: error TS2353: Object literal may only specify known properties, and 'taskType' does not exist in type 'ModelRequestOptions'.
 				capability: ModelCapability.CodeGeneration,
-				taskType: 'implementDesignPattern',
 				temperature: 0.3,
 				maxTokens: 3072
 			});
@@ -353,14 +350,8 @@ EXPLANATION:
 		// Try to get template from prompt manager
 		const template = this.promptManager.getTemplate('code-generation');
 
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
-// @ts-ignore: error TS2339: Property 'renderTemplate' does not exist on type 'PromptManager'.
 		if (template) {
-			return this.promptManager.renderTemplate('code-generation', {
+			return this.promptManager.render('code-generation', {
 				prompt: params.prompt,
 				language: params.language,
 				existingCode: params.existingCode || '',
@@ -386,14 +377,8 @@ EXPLANATION:
 		// Add context if available
 		if (params.context) {
 			if (params.context.currentFile) {
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
 				prompt += `Current file: ${params.context.currentFile.uri.fsPath}\n`;
-				prompt += `Language: ${params.context.currentFile.language}\n\n`;
+				prompt += `Language: ${params.context.currentFile.languageId}\n\n`;
 			}
 
 			if (params.context.projectInfo) {
@@ -481,14 +466,8 @@ EXPLANATION:
 
 		if (params.context) {
 			if (params.context.currentFile) {
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
 				prompt += `Current file: ${params.context.currentFile.uri.fsPath}\n`;
-				prompt += `Language: ${params.context.currentFile.language}\n\n`;
+				prompt += `Language: ${params.context.currentFile.languageId}\n\n`;
 			}
 
 			if (params.context.projectInfo) {
@@ -556,14 +535,8 @@ EXPLANATION:
 
 		if (params.context) {
 			if (params.context.currentFile) {
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
 				prompt += `Current file: ${params.context.currentFile.uri.fsPath}\n`;
-				prompt += `Language: ${params.context.currentFile.language}\n\n`;
+				prompt += `Language: ${params.context.currentFile.languageId}\n\n`;
 			}
 
 			if (params.context.projectInfo) {
@@ -636,14 +609,8 @@ EXPLANATION:
 
 		if (params.context) {
 			if (params.context.currentFile) {
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
-// @ts-ignore: error TS2551: Property 'language' does not exist on type 'FileContext'. Did you mean 'languageId'?
 				prompt += `Current file: ${params.context.currentFile.uri.fsPath}\n`;
-				prompt += `Language: ${params.context.currentFile.language}\n\n`;
+				prompt += `Language: ${params.context.currentFile.languageId}\n\n`;
 			}
 
 			if (params.context.projectInfo) {

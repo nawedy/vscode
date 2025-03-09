@@ -8,6 +8,14 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { Logger } from '../utils/logger';
 
+interface FileEvent {
+	type: 'create' | 'change' | 'delete';
+	uri: vscode.Uri;
+	timestamp: number;
+}
+
+type FileEventHandler = (event: FileEvent) => void;
+
 /**
  * File change event type
  */
@@ -37,7 +45,8 @@ export interface FileChangeEvent {
  */
 export class FileWatcher implements vscode.Disposable {
 	private readonly logger: Logger;
-	private readonly watcher: vscode.FileSystemWatcher;
+	private readonly watchers: vscode.FileSystemWatcher[] = [];
+	private readonly eventHandlers: Set<FileEventHandler> = new Set();
 	private readonly disposables: vscode.Disposable[] = [];
 	private readonly onFileChangedEmitter = new vscode.EventEmitter<FileChangeEvent>();
 
@@ -78,6 +87,48 @@ export class FileWatcher implements vscode.Disposable {
 	}
 
 	/**
+	 * Watch a specific pattern
+	 * @param globPattern Glob pattern to watch
+	 * @param ignoreCreate Whether to ignore create events
+	 * @param ignoreChange Whether to ignore change events
+	 * @param ignoreDelete Whether to ignore delete events
+	 * @returns The file system watcher
+	 */
+	public watchPattern(
+		globPattern: string,
+		ignoreCreate?: boolean,
+		ignoreChange?: boolean,
+		ignoreDelete?: boolean
+	): vscode.FileSystemWatcher {
+		const watcher = vscode.workspace.createFileSystemWatcher(
+			globPattern,
+			!!ignoreCreate,
+			!!ignoreChange,
+			!!ignoreDelete
+		);
+
+		this.watchers.push(watcher);
+
+		watcher.onDidCreate(uri => this.notifyHandlers({ type: 'create', uri, timestamp: Date.now() }));
+		watcher.onDidChange(uri => this.notifyHandlers({ type: 'change', uri, timestamp: Date.now() }));
+		watcher.onDidDelete(uri => this.notifyHandlers({ type: 'delete', uri, timestamp: Date.now() }));
+
+		return watcher;
+	}
+
+	/**
+	 * Register a file event handler
+	 * @param handler File event handler
+	 * @returns Disposable to unregister the handler
+	 */
+	public onFileEvent(handler: FileEventHandler): vscode.Disposable {
+		this.eventHandlers.add(handler);
+		return {
+			dispose: () => this.eventHandlers.delete(handler)
+		};
+	}
+
+	/**
 	 * Handle a file change event
 	 * @param uri File URI
 	 * @param type Change type
@@ -101,6 +152,22 @@ export class FileWatcher implements vscode.Disposable {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			this.logger.error(`Error handling file change: ${errorMessage}`);
 		}
+	}
+
+	/**
+	 * Handle a file event
+	 * @param event File event
+	 */
+	private handleFileEvent(event: FileEvent): void {
+		this.eventHandlers.forEach(handler => handler(event));
+	}
+
+	/**
+	 * Notify handlers of a file event
+	 * @param event File event
+	 */
+	private notifyHandlers(event: FileEvent): void {
+		this.eventHandlers.forEach(handler => handler(event));
 	}
 
 	/**
@@ -130,5 +197,8 @@ export class FileWatcher implements vscode.Disposable {
 	public dispose(): void {
 		this.disposables.forEach(d => d.dispose());
 		this.watcher.dispose();
+		this.watchers.forEach(watcher => watcher.dispose());
+		this.watchers.length = 0;
+		this.eventHandlers.clear();
 	}
 }

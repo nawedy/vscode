@@ -1,17 +1,38 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { WebviewManager } from './webviewManager';
 import { Logger } from '../utils/logger';
+
+interface ResponseMessage {
+	type: 'code' | 'text' | 'error';
+	content: string;
+	language?: string;
+	metadata?: Record<string, unknown>;
+}
+
+interface PanelState {
+	responses: ResponseMessage[];
+	currentLanguage?: string;
+}
+
+interface ViewMessage {
+	command: string;
+	data?: unknown;
+}
+
+/**
+ * Response data returned by content providers
+ */
+interface ResponseData {
+	content: string;
+	[key: string]: unknown;
+}
 
 /**
  * Type for response generator function
  */
 type ResponseGenerator = (
 	updateCallback: (content: string) => void
-) => Promise<{
-	content: string;
-	[key: string]: any;
-}>;
+) => Promise<ResponseData>;
 
 /**
  * Manages AI response panels
@@ -23,6 +44,9 @@ export class AIResponsePanel {
 	private panel: vscode.WebviewPanel | undefined;
 	private currentContent: string = '';
 	private isStreaming: boolean = false;
+	private state: PanelState = {
+		responses: []
+	};
 
 	/**
 	 * Create a new AIResponsePanel
@@ -121,16 +145,22 @@ export class AIResponsePanel {
 	 * @param message Message object
 	 * @param panel Source webview panel
 	 */
-	private handleWebviewMessage(message: any, panel: vscode.WebviewPanel): void {
-		switch (message.type) {
+	private handleWebviewMessage(message: unknown, panel: vscode.WebviewPanel): void {
+		const typedMessage = message as { type: string; content?: string };
+
+		switch (typedMessage.type) {
 			case 'insert':
 				// Insert content at current editor position
-				this.insertIntoEditor(message.content);
+				if (typedMessage.content) {
+					this.insertIntoEditor(typedMessage.content);
+				}
 				break;
 
 			case 'copy':
 				// Copy content to clipboard
-				vscode.env.clipboard.writeText(message.content);
+				if (typedMessage.content) {
+					vscode.env.clipboard.writeText(typedMessage.content);
+				}
 				break;
 
 			case 'close':
@@ -172,19 +202,21 @@ export class AIResponsePanel {
 			['media', 'styles.css']
 		);
 
+		// Get CSP source from webview panel
+		const panel = this.webviewManager.createWebviewPanel({
+			title: 'Temporary',
+			viewType: 'temp'
+		});
+		const cspSource = panel.webview.cspSource;
+		panel.dispose();
+
 		return `
 			<!DOCTYPE html>
 			<html lang="en">
 			<head>
 				<meta charset="UTF-8">
-// @ts-ignore: error TS2339: Property 'cspSource' does not exist on type 'WebviewManager'.
-// @ts-ignore: error TS2339: Property 'cspSource' does not exist on type 'WebviewManager'.
-// @ts-ignore: error TS2339: Property 'cspSource' does not exist on type 'WebviewManager'.
-// @ts-ignore: error TS2339: Property 'cspSource' does not exist on type 'WebviewManager'.
-// @ts-ignore: error TS2339: Property 'cspSource' does not exist on type 'WebviewManager'.
-// @ts-ignore: error TS2339: Property 'cspSource' does not exist on type 'WebviewManager'.
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
-				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.webviewManager.cspSource}; script-src 'nonce-${nonce}';">
+				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource}; script-src 'nonce-${nonce}';">
 				<title>AI Response</title>
 				<link rel="stylesheet" href="${styleUri}">
 			</head>
@@ -270,10 +302,57 @@ export class AIResponsePanel {
 			this.panel = undefined;
 		}
 	}
+
+	/**
+	 * Add a response message to the panel state
+	 * @param message Response message to add
+	 */
+	public addResponse(message: ResponseMessage): void {
+		this.state.responses.push(message);
+		this.updateView();
+	}
+
+	/**
+	 * Update the panel view based on current state
+	 */
+	private updateView(): void {
+		if (!this.panel) {
+			return;
+		}
+
+		// Implementation would be needed here based on requirements
+		// For now, just sending the current state to the webview
+		this.panel.webview.postMessage({
+			type: 'updateState',
+			state: this.state
+		});
+	}
+
+	/**
+	 * Handle messages from the webview
+	 * @param message Message from webview
+	 */
+	private async handleMessage(message: ViewMessage): Promise<void> {
+		// Implementation would be needed here based on requirements
+		// This would handle specific message types from the webview
+		switch (message.command) {
+			case 'requestState':
+				if (this.panel) {
+					this.panel.webview.postMessage({
+						type: 'updateState',
+						state: this.state
+					});
+				}
+				break;
+
+			// Add other command handlers as needed
+		}
+	}
 }
 
 /**
  * Generate a nonce string
+ * @returns Random nonce string
  */
 function getNonce(): string {
 	let text = '';

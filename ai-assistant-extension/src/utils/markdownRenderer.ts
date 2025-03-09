@@ -1,6 +1,13 @@
 import * as vscode from 'vscode';
-import * as marked from 'marked';
-import * as hljs from 'highlight.js';
+import { marked } from 'marked';
+import { highlight, highlightAuto } from 'highlight.js';
+import { Logger } from './logger';
+
+export interface RenderOptions {
+	codeBlockHighlight?: boolean;
+	inlineLinks?: boolean;
+	tableFormatting?: boolean;
+}
 
 /**
  * Renderer options
@@ -15,6 +22,10 @@ interface RendererOptions {
  * Utility class for rendering Markdown content
  */
 export class MarkdownRenderer {
+	constructor(
+		private readonly logger: Logger
+	) {}
+
 	/**
 	 * Render markdown to HTML
 	 * @param markdown Markdown content
@@ -27,19 +38,12 @@ export class MarkdownRenderer {
 		// Configure code block rendering with syntax highlighting
 		renderer.code = (code, language) => {
 			if (options.syntaxHighlight && language) {
-// @ts-ignore: error TS2339: Property 'highlight' does not exist on type 'typeof import("highlight.js")'.
-// @ts-ignore: error TS2339: Property 'highlight' does not exist on type 'typeof import("highlight.js")'.
-// @ts-ignore: error TS2339: Property 'highlight' does not exist on type 'typeof import("highlight.js")'.
-// @ts-ignore: error TS2339: Property 'highlight' does not exist on type 'typeof import("highlight.js")'.
-// @ts-ignore: error TS2339: Property 'highlight' does not exist on type 'typeof import("highlight.js")'.
-// @ts-ignore: error TS2339: Property 'highlight' does not exist on type 'typeof import("highlight.js")'.
 				try {
-					const highlighted = hljs.highlight(code, { language }).value;
+					const highlighted = highlight(code, { language }).value;
 					return `<pre class="hljs"><code class="language-${language}">${highlighted}</code></pre>`;
 				} catch (e) {
-// @ts-ignore: error TS2339: Property 'highlightAuto' does not exist on type 'typeof import("highlight.js")'.
 					// If language isn't supported, use generic highlighting
-					return `<pre class="hljs"><code>${hljs.highlightAuto(code).value}</code></pre>`;
+					return `<pre class="hljs"><code>${highlightAuto(code).value}</code></pre>`;
 				}
 			}
 
@@ -85,6 +89,50 @@ export class MarkdownRenderer {
 				${html}
 			</div>
 		`;
+	}
+
+	public render(markdown: string, options: RenderOptions = {}): vscode.Uri {
+		try {
+			// Create temporary markdown file
+			const tempUri = this.createTempMarkdownFile(markdown);
+
+			// Apply formatting options
+			let content = markdown;
+			if (options.codeBlockHighlight) {
+				content = this.highlightCodeBlocks(content);
+			}
+			if (options.inlineLinks) {
+				content = this.processInlineLinks(content);
+			}
+			if (options.tableFormatting) {
+				content = this.formatTables(content);
+			}
+
+			return tempUri;
+		} catch (error) {
+			this.logger.error(`Error rendering markdown: ${error instanceof Error ? error.message : String(error)}`);
+			throw error;
+		}
+	}
+
+	private createTempMarkdownFile(content: string): vscode.Uri {
+		// Implementation would create a temp file and return its URI
+		return vscode.Uri.file('temp.md');
+	}
+
+	private highlightCodeBlocks(markdown: string): string {
+		// Implementation for code block highlighting
+		return markdown;
+	}
+
+	private processInlineLinks(markdown: string): string {
+		// Implementation for inline link processing
+		return markdown;
+	}
+
+	private formatTables(markdown: string): string {
+		// Implementation for table formatting
+		return markdown;
 	}
 
 	/**

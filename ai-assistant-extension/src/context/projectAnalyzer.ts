@@ -28,17 +28,27 @@ import { logger } from '../utils/logger';
 // Promisify glob correctly
 const globPromise = promisify(glob);
 
+interface ProjectStats {
+	fileCount: number;
+	totalLines: number;
+	languages: Map<string, number>;
+	dependencies: Map<string, string>;
+}
+
 /**
  * Analyzes project structure and content
  */
 export class ProjectAnalyzer {
 	// Map of file extensions to languages
 	private extensionToLanguage: Map<string, string> = new Map();
+	private readonly logger: Logger;
+	private projectStats: ProjectStats | null = null;
 
 	/**
 	 * Initialize the project analyzer
 	 */
-	constructor() {
+	constructor(logger: Logger) {
+		this.logger = logger;
 		this.initializeExtensionMappings();
 		logger.info('ProjectAnalyzer initialized');
 	}
@@ -458,6 +468,69 @@ export class ProjectAnalyzer {
 			.replace(/\?/g, '.');
 
 		return new RegExp(`^${regexStr}$`);
+	}
+
+	analyzeProject() {
+		// Implementation for analyzing project
+	}
+
+	public async analyzeProject(workspaceRoot: vscode.Uri): Promise<ProjectStats> {
+		try {
+			const stats: ProjectStats = {
+				fileCount: 0,
+				totalLines: 0,
+				languages: new Map(),
+				dependencies: new Map()
+			};
+
+			// Find all files in workspace
+			const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
+
+			// Process each file
+			for (const file of files) {
+				const language = this.getLanguageId(file);
+				if (language) {
+					stats.fileCount++;
+					stats.languages.set(language, (stats.languages.get(language) || 0) + 1);
+
+					const document = await vscode.workspace.openTextDocument(file);
+					stats.totalLines += document.lineCount;
+				}
+			}
+
+			// Parse package.json if exists
+			const packageJsonUri = vscode.Uri.joinPath(workspaceRoot, 'package.json');
+			try {
+				const packageJson = await vscode.workspace.fs.readFile(packageJsonUri);
+				const packageData = JSON.parse(packageJson.toString());
+				if (packageData.dependencies) {
+					Object.entries<string>(packageData.dependencies).forEach(([key, value]) => {
+						stats.dependencies.set(key, value);
+					});
+				}
+			} catch (error) {
+				this.logger.debug('No package.json found or unable to parse');
+			}
+
+			this.projectStats = stats;
+			return stats;
+		} catch (error) {
+			this.logger.error(`Error analyzing project: ${error instanceof Error ? error.message : String(error)}`);
+			throw error;
+		}
+	}
+
+	private getLanguageId(uri: vscode.Uri): string | undefined {
+		const extension = path.extname(uri.fsPath).toLowerCase();
+		const languageMap: Record<string, string> = {
+			'.ts': 'typescript',
+			'.js': 'javascript',
+			'.jsx': 'javascriptreact',
+			'.tsx': 'typescriptreact',
+			'.json': 'json',
+			'.md': 'markdown'
+		};
+		return languageMap[extension];
 	}
 }
 

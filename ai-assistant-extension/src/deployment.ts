@@ -139,4 +139,11 @@ export class DeploymentHelper {
 			});
 		});
 	}
+
+	/**
+	 * Deploy configuration
+	 */
+	public deployConfig() {
+		// Implementation for deploying config
+	}
 }

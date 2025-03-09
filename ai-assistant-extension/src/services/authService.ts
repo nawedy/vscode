@@ -9,6 +9,17 @@ import * as vscode from 'vscode';
 import { ConfigService } from './configService';
 import { Logger } from '../utils/logger';
 
+interface AuthToken {
+	token: string;
+	expiresAt: number;
+}
+
+interface AuthCredentials {
+	providerId: string;
+	apiKey: string;
+	apiEndpoint?: string;
+}
+
 /**
  * Authentication state for a provider
  */
@@ -27,6 +38,7 @@ export class AuthService {
 	private readonly configService: ConfigService;
 	private readonly logger: Logger;
 	private authStates: Map<string, ProviderAuthState> = new Map();
+	private readonly tokens: Map<string, AuthToken> = new Map();
 
 	// Event emitter for authentication state changes
 	private readonly _onAuthStateChanged = new vscode.EventEmitter<ProviderAuthState>();
@@ -222,5 +234,51 @@ export class AuthService {
 	 */
 	public dispose(): void {
 		this._onAuthStateChanged.dispose();
+	}
+
+	public async setCredentials(credentials: AuthCredentials): Promise<void> {
+		try {
+			await this.configService.setSecureValue(
+				`auth.${credentials.providerId}`,
+				JSON.stringify(credentials)
+			);
+			this.logger.info(`Stored credentials for provider: ${credentials.providerId}`);
+		} catch (error) {
+			this.logger.error(`Failed to store credentials: ${error instanceof Error ? error.message : String(error)}`);
+			throw error;
+		}
+	}
+
+	public async getCredentials(providerId: string): Promise<AuthCredentials | null> {
+		try {
+			const stored = await this.configService.getSecureValue(`auth.${providerId}`);
+			if (!stored) {
+				return null;
+			}
+			return JSON.parse(stored) as AuthCredentials;
+		} catch (error) {
+			this.logger.error(`Failed to get credentials: ${error instanceof Error ? error.message : String(error)}`);
+			return null;
+		}
+	}
+
+	public async removeCredentials(providerId: string): Promise<void> {
+		try {
+			await this.configService.deleteSecureValue(`auth.${providerId}`);
+			this.logger.info(`Removed credentials for provider: ${providerId}`);
+		} catch (error) {
+			this.logger.error(`Failed to remove credentials: ${error instanceof Error ? error.message : String(error)}`);
+			throw error;
+		}
+	}
+
+	public async validateCredentials(providerId: string): Promise<boolean> {
+		const credentials = await this.getCredentials(providerId);
+		if (!credentials) {
+			return false;
+		}
+
+		// Implement provider-specific validation
+		return true;
 	}
 }

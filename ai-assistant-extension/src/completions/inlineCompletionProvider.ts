@@ -20,7 +20,7 @@ import * as vscode from 'vscode';
 import { CodeGenerationEnsemble } from '../ai/ensemble/codeGenerationEnsemble';
 import { ContextManager } from '../context/contextManager';
 import { ConfigService } from '../services/configService';
-import { logger } from '../utils/logger';
+import { Logger } from '../utils/logger';
 import { debounce } from '../utils/debounce';
 
 // Interface for completion cache entry
@@ -44,10 +44,40 @@ interface TriggerPatterns {
     [key: string]: RegExp[];
 }
 
+// Add type for debounced function
+type DebouncedCompletionFunction = (request: CompletionRequest) => Promise<vscode.InlineCompletionItem[]>;
+
+interface CompletionConfig {
+    enabled: boolean;
+    cacheTimeToLiveMs: number;
+    minTriggerLength: number;
+    maxPrefixLines: number;
+    maxSuffixLines: number;
+    debounceMs: number;
+}
+
+interface CompletionResult {
+    completedCode: string;
+    metadata?: Record<string, unknown>;
+}
+
+interface CacheEntry {
+	items: vscode.InlineCompletionItem[];
+	timestamp: number;
+}
+
+interface CompletionContext {
+	prefix: string;
+	suffix: string;
+	precedingLines: string[];
+	followingLines: string[];
+	language: string;
+}
+
 /**
  * Provides inline code completions as the user types
  */
-export class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
+export class InlineCompletionProvider implements vscode.InlineCompletionItemProvider, vscode.Disposable {
     private codeGenerationEnsemble: CodeGenerationEnsemble;
     private contextManager: ContextManager;
     private configService: ConfigService;
@@ -94,7 +124,8 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     };
 
     // Debounced completion handler to avoid too many requests
-    private debouncedProvideCompletions: (request: CompletionRequest) => Promise<vscode.InlineCompletionItem[]>;
+    // Fix debounced function type
+    private debouncedProvideCompletions: DebouncedCompletionFunction;
 
     /**
      * Initialize the inline completion provider
@@ -115,9 +146,10 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         // Load configuration
         this.loadConfig();
 
-// @ts-ignore: error TS2322: Type '(...args: unknown[]) => void' is not assignable to type '(request: CompletionRequest) => Promise<InlineCompletionItem[]>'.
+        // @ts-ignore: error TS2322: Type '(...args: unknown[]) => void' is not assignable to type '(request: CompletionRequest) => Promise<InlineCompletionItem[]>'.
         // Create debounced completion handler
-        this.debouncedProvideCompletions = debounce(
+        // Fix debounce type casting
+        this.debouncedProvideCompletions = debounce<DebouncedCompletionFunction>(
             this.generateCompletions.bind(this),
             this.debounceMs
         );
@@ -140,22 +172,16 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     /**
      * Load configuration from settings
      */
-// @ts-ignore: error TS2339: Property 'getConfig' does not exist on type 'ConfigService'.
-// @ts-ignore: error TS2339: Property 'getConfig' does not exist on type 'ConfigService'.
-// @ts-ignore: error TS2339: Property 'getConfig' does not exist on type 'ConfigService'.
-// @ts-ignore: error TS2339: Property 'getConfig' does not exist on type 'ConfigService'.
-// @ts-ignore: error TS2339: Property 'getConfig' does not exist on type 'ConfigService'.
-// @ts-ignore: error TS2339: Property 'getConfig' does not exist on type 'ConfigService'.
     private loadConfig(): void {
-        const config = this.configService.getConfig('inlineCompletions');
+        const config = this.configService.get<CompletionConfig>('inlineCompletions');
         if (!config) return;
 
-        this.enabled = config.enabled !== undefined ? config.enabled : true;
-        this.cacheTimeToLiveMs = config.cacheTimeToLiveMs || 10000;
-        this.minTriggerLength = config.minTriggerLength || 3;
-        this.maxPrefixLines = config.maxPrefixLines || 15;
-        this.maxSuffixLines = config.maxSuffixLines || 5;
-        this.debounceMs = config.debounceMs || 300;
+        this.enabled = config.enabled ?? true;
+        this.cacheTimeToLiveMs = config.cacheTimeToLiveMs ?? 10000;
+        this.minTriggerLength = config.minTriggerLength ?? 3;
+        this.maxPrefixLines = config.maxPrefixLines ?? 15;
+        this.maxSuffixLines = config.maxSuffixLines ?? 5;
+        this.debounceMs = config.debounceMs ?? 300;
 
         logger.info('InlineCompletionProvider configuration loaded');
     }
@@ -213,6 +239,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
      * @param request Completion request
      * @returns Array of inline completion items
      */
+    // Fix return type
     private async generateCompletions(
         request: CompletionRequest
     ): Promise<vscode.InlineCompletionItem[]> {
@@ -224,6 +251,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         }
 
         try {
+            const completionContext = this.getCompletionContext(document, position);
             // Get document text
             const documentText = document.getText();
 
@@ -238,7 +266,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
             let projectContext = {};
             if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
                 const workspaceUri = vscode.workspace.workspaceFolders[0].uri;
-// @ts-ignore: error TS2551: Property 'getFileContext' does not exist on type 'ContextManager'. Did you mean 'getContext'?
+                // @ts-ignore: error TS2551: Property 'getFileContext' does not exist on type 'ContextManager'. Did you mean 'getContext'?
 
                 projectContext = await this.contextManager.getFileContext(
                     workspaceUri,
@@ -281,7 +309,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
 
             return [];
         } catch (error) {
-            logger.error(`Error generating completions: ${error.message}`);
+            logger.error(`Error generating completions: ${error instanceof Error ? error.message : String(error)}`);
             return [];
         }
     }
@@ -488,10 +516,28 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         document: vscode.TextDocument,
         position: vscode.Position
     ): string {
-        // Use document URI, languageId, and position as key
+        const context = this.getCompletionContext(document, position);
+        return JSON.stringify({
+            uri: document.uri.toString(),
+            version: document.version,
+            prefix: context.prefix,
+            language: context.language
+        });
+    }
+
+    private getCompletionContext(document: vscode.TextDocument, position: vscode.Position): CompletionContext {
         const prefix = this.getPrefix(document, position);
-        const uri = document.uri.toString();
-        return `${uri}|${document.languageId}|${prefix.length}|${position.line}|${position.character}`;
+        const suffix = this.getSuffix(document, position);
+        const lines = document.getText().split('\n');
+        const currentLine = position.line;
+
+        return {
+            prefix,
+            suffix,
+            precedingLines: lines.slice(Math.max(0, currentLine - this.maxPrefixLines), currentLine),
+            followingLines: lines.slice(currentLine + 1, currentLine + 1 + this.maxSuffixLines),
+            language: document.languageId
+        };
     }
 
     /**

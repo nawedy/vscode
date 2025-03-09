@@ -319,6 +319,13 @@
 				"panel": "new"
 			},
 			"problemMatcher": []
+		},
+		{
+			"label": "test",
+			"type": "npm",
+			"script": "test",
+			"group": "test",
+			"problemMatcher": []
 		}
 	]
 }

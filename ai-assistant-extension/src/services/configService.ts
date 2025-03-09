@@ -13,6 +13,23 @@ import { Logger } from '../utils/logger';
 /**
  * Service for managing configuration and settings
  */
+export interface ConfigChangeEvent<T = unknown> {
+	key: string;
+	oldValue: T | undefined;
+	newValue: T | undefined;
+}
+
+interface ConfigState {
+	[key: string]: unknown;
+}
+
+export type ConfigChangeListener = (event: ConfigChangeEvent) => void;
+
+interface ConfigurationOptions {
+	section?: string;
+	scope?: vscode.ConfigurationScope;
+}
+
 export class ConfigService implements vscode.Disposable {
 	private readonly context: vscode.ExtensionContext;
 	private readonly logger: Logger;
@@ -20,6 +37,9 @@ export class ConfigService implements vscode.Disposable {
 	private _isDevelopmentMode: boolean = false;
 	private readonly secrets: vscode.SecretStorage;
 	private configurationChangeListener: vscode.Disposable | undefined;
+	private state: ConfigState = {};
+	private listeners: Map<string, Set<ConfigChangeListener>> = new Map();
+	private readonly changeEmitter = new vscode.EventEmitter<ConfigChangeEvent>();
 
 	/**
 	 * Create a new configuration service
@@ -62,8 +82,8 @@ export class ConfigService implements vscode.Disposable {
 	 * @param defaultValue Default value if not found
 	 * @returns Configuration value or default
 	 */
-	public get<T>(key: string, defaultValue?: T): T {
-		const config = vscode.workspace.getConfiguration(this.configSectionName);
+	public get<T>(key: string, defaultValue?: T): T | undefined {
+		const config = vscode.workspace.getConfiguration('aiAssistant');
 		return config.get<T>(key, defaultValue as T);
 	}
 
@@ -74,16 +94,9 @@ export class ConfigService implements vscode.Disposable {
 	 * @param target Configuration target
 	 * @returns Promise that resolves when update is complete
 	 */
-	public async update(key: string, value: any, target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global): Promise<void> {
-		try {
-			const config = vscode.workspace.getConfiguration(this.configSectionName);
-			await config.update(key, value, target);
-			this.logger.debug(`Updated config: ${key}`);
-		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			this.logger.error(`Error updating config ${key}: ${errorMessage}`);
-			throw error;
-		}
+	public async update<T>(key: string, value: T, target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global): Promise<void> {
+		const config = vscode.workspace.getConfiguration('aiAssistant');
+		await config.update(key, value, target);
 	}
 
 	/**
@@ -137,33 +150,25 @@ export class ConfigService implements vscode.Disposable {
 	 * @param key Secret key
 	 * @returns Secret value or empty string if not found
 	 */
-	public getSecureValue(key: string): string {
-		// Use synchronous local storage as a fallback since we can't make secrets async
-		let value = '';
+	public async getSecureValue(key: string): Promise<string | undefined> {
+		return await this.context.secrets.get(key);
+	}
 
-		try {
-			// Try to get from locally cached values first
-			const cachedValues = this.context.globalState.get<Record<string, string>>('secureValues', {});
-			if (cachedValues && cachedValues[key]) {
-				return cachedValues[key];
-			}
+	/**
+	 * Store a secure configuration value in extension secrets storage
+	 * @param key Secret key
+	 * @param value Secret value
+	 */
+	public async setSecureValue(key: string, value: string): Promise<void> {
+		await this.context.secrets.store(key, value);
+	}
 
-			// Schedule the actual fetch for next time
-			this.context.secrets.get(key).then(
-				(result) => {
-					if (result) {
-						// Cache for next time
-						const cachedValues = this.context.globalState.get<Record<string, string>>('secureValues', {});
-						cachedValues[key] = result;
-						this.context.globalState.update('secureValues', cachedValues);
-					}
-				}
-			);
-		} catch (error) {
-			this.logger.error(`Error in getSecureValue: ${error instanceof Error ? error.message : String(error)}`);
-		}
-
-		return value;
+	/**
+	 * Delete a secure configuration value from extension secrets storage
+	 * @param key Secret key
+	 */
+	public async deleteSecureValue(key: string): Promise<void> {
+		await this.context.secrets.delete(key);
 	}
 
 	/**
@@ -302,5 +307,33 @@ export class ConfigService implements vscode.Disposable {
 		if (this.configurationChangeListener) {
 			this.configurationChangeListener.dispose();
 		}
+	}
+
+	/**
+	 * Get config service
+	 */
+	public getConfigService() {
+		// Implementation for getting config service
+	}
+
+	/**
+	 * Add a configuration change listener
+	 * @param key Configuration key
+	 * @param listener Listener function
+	 */
+	public addChangeListener(key: string, listener: ConfigChangeListener): void {
+		if (!this.listeners.has(key)) {
+			this.listeners.set(key, new Set());
+		}
+		this.listeners.get(key)?.add(listener);
+	}
+
+	/**
+	 * Remove a configuration change listener
+	 * @param key Configuration key
+	 * @param listener Listener function
+	 */
+	public removeChangeListener(key: string, listener: ConfigChangeListener): void {
+		this.listeners.get(key)?.delete(listener);
 	}
 }
